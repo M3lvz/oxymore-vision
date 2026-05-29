@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <meta name="theme-color" content="#000000"/>
+  <title>Oxymore REC</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html, body { height:100%; background:#000; color:#fff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; overflow:hidden; }
+
+    .stage { position:relative; width:100vw; height:100vh; display:flex; flex-direction:column; }
+
+    /* Preview vidéo plein écran */
+    video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; }
+
+    /* Overlay HUD top */
+    .hud-top {
+      position:relative; z-index:2;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 18px; gap:12px;
+      background:linear-gradient(180deg, rgba(0,0,0,0.6), transparent);
+    }
+    .brand { font-size:12px; letter-spacing:0.3em; font-weight:600; }
+    .status { display:flex; align-items:center; gap:6px; font-size:11px; }
+    .led { width:8px; height:8px; border-radius:50%; background:#888; }
+    .led.ok      { background:#6ee7a7; box-shadow:0 0 8px rgba(110,231,167,0.7); }
+    .led.rec     { background:#ff4444; box-shadow:0 0 10px rgba(255,68,68,0.7); animation:pulse 0.8s infinite; }
+    .led.upload  { background:#f5c66c; animation:pulse 0.8s infinite; }
+    @keyframes pulse { 50% { opacity:0.4; } }
+
+    /* Center: name input + REC indicator */
+    .center {
+      position:relative; z-index:2;
+      flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      padding:20px;
+    }
+    .name-card {
+      background:rgba(0,0,0,0.55); backdrop-filter:blur(10px);
+      border:1px solid rgba(255,255,255,0.15); border-radius:14px;
+      padding:14px 18px; max-width:320px; width:100%;
+      display:flex; flex-direction:column; gap:8px;
+    }
+    .name-card label { font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:#aaa; }
+    .name-card input {
+      background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
+      border-radius:8px; padding:10px 12px; color:#fff; font-size:15px; outline:none;
+    }
+
+    .rec-badge {
+      position:absolute; top:60px; right:18px; z-index:3;
+      display:flex; align-items:center; gap:7px;
+      background:rgba(255,68,68,0.92); padding:7px 14px; border-radius:999px;
+      font-size:13px; font-weight:600; letter-spacing:0.05em;
+      box-shadow:0 4px 16px rgba(255,68,68,0.4);
+      opacity:0; transform:translateY(-6px); transition:all 0.2s ease;
+    }
+    .rec-badge.show { opacity:1; transform:translateY(0); }
+    .rec-badge .dot { width:8px; height:8px; border-radius:50%; background:#fff; animation:pulse 0.8s infinite; }
+
+    /* Big sync flash overlay (when PC sends start signal) */
+    .sync-flash {
+      position:fixed; inset:0; background:#fff; opacity:0;
+      pointer-events:none; z-index:9999;
+      transition:opacity 0.15s ease;
+    }
+    .sync-flash.active { opacity:1; }
+
+    /* Bottom: state info */
+    .hud-bottom {
+      position:relative; z-index:2;
+      padding:14px 18px 28px;
+      background:linear-gradient(0deg, rgba(0,0,0,0.7), transparent);
+      text-align:center; font-size:12px; color:#bbb;
+    }
+    .hud-bottom strong { color:#fff; }
+
+    /* Écran "caméra coupée" */
+    .cam-off {
+      position:fixed; inset:0; z-index:10000;
+      background:#000;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:20px; padding:30px; text-align:center;
+      opacity:0; pointer-events:none; transition:opacity 0.25s;
+    }
+    .cam-off.show { opacity:1; pointer-events:auto; }
+    .cam-off .icon { font-size:48px; }
+    .cam-off h2 { font-size:18px; font-weight:700; color:#fff; }
+    .cam-off p  { font-size:13px; color:#888; line-height:1.6; max-width:260px; }
+    .cam-off button {
+      margin-top:8px; padding:13px 28px; border-radius:999px;
+      background:#fff; color:#000; border:none;
+      font-size:15px; font-weight:600; cursor:pointer;
+    }
+
+    /* Initial state (avant getUserMedia) */
+    .preconnect {
+      position:fixed; inset:0; z-index:5;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:24px; padding:30px; background:#000;
+    }
+    .preconnect h1 { font-size:18px; letter-spacing:0.32em; font-weight:600; }
+    .preconnect .desc { font-size:13px; color:#aaa; text-align:center; max-width:280px; line-height:1.5; }
+    .preconnect button {
+      background:#fff; color:#000; border:none; padding:14px 32px; border-radius:999px;
+      font-size:15px; font-weight:600; letter-spacing:0.03em; cursor:pointer;
+    }
+    .preconnect .err {
+      background:rgba(255,68,68,0.15); border:1px solid rgba(255,68,68,0.4);
+      padding:12px 16px; border-radius:10px; font-size:12px; color:#ff8a8a;
+      max-width:300px; line-height:1.5;
+    }
+  </style>
+</head>
+<body>
+
+<!-- État initial : avant getUserMedia -->
+<div class="preconnect" id="preconnect">
+  <h1>OXYMORE REC</h1>
+  <div class="desc">
+    Active l'accès caméra pour rejoindre la session.<br/>
+    Le PC contrôlera le démarrage de l'enregistrement.
+  </div>
+  <button id="btn-start">Activer la caméra</button>
+  <div class="err" id="err" style="display:none"></div>
+</div>
+
+<!-- Scène principale (caméra active) -->
+<div class="stage" id="stage" style="display:none">
+  <video id="preview" autoplay muted playsinline></video>
+
+  <div class="hud-top">
+    <div class="brand">OXYMORE REC</div>
+    <div class="status">
+      <span class="led" id="led"></span>
+      <span id="status-text">Connexion…</span>
+    </div>
+  </div>
+
+  <div class="rec-badge" id="rec-badge">
+    <span class="dot"></span><span>REC</span>
+  </div>
+
+  <div class="center">
+    <div class="name-card">
+      <label>Nom de cette caméra</label>
+      <input type="text" id="cam-name" placeholder="Cam 1"/>
+    </div>
+  </div>
+
+  <div class="hud-bottom" id="hud-bottom">
+    En attente d'un signal du PC…
+  </div>
+</div>
+
+<!-- Flash de synchro (visible par toutes les caméras au lancement) -->
+<div class="sync-flash" id="sync-flash"></div>
+
+<!-- Écran caméra coupée (page en background) -->
+<div class="cam-off" id="cam-off">
+  <div class="icon">📵</div>
+  <h2>Caméra désactivée</h2>
+  <p>La caméra s'est coupée automatiquement quand tu as quitté la page.</p>
+  <button id="btn-reactivate">Réactiver la caméra</button>
+</div>
+
+<script src="libs/socket.io.min.js"></script>
+<script>
+(function() {
+  const $ = id => document.getElementById(id);
+  let stream = null;
+  let recorder = null;
+  let chunks = [];
+  let socket = null;
+  let myName = localStorage.getItem('oxymore_rec_name') || '';
+  let startScheduled = null;
+
+  // Canvas dédié aux thumbnails de preview (réutilisé à chaque frame)
+  const _previewCanvas = document.createElement('canvas');
+  _previewCanvas.width  = 320;
+  _previewCanvas.height = 180;
+  const _previewCtx = _previewCanvas.getContext('2d');
+  let _previewTimer = null;
+
+  function startPreviewStream() {
+    if (_previewTimer) return;
+    _previewTimer = setInterval(() => {
+      if (!stream || !socket || document.hidden) return;
+      const video = $('preview');
+      if (!video.videoWidth) return;
+      _previewCtx.drawImage(video, 0, 0, 320, 180);
+      const frame = _previewCanvas.toDataURL('image/jpeg', 0.45);
+      socket.emit('rec_frame', { name: myName, frame });
+    }, 500); // ~2fps — suffisant pour une preview, léger en bande passante
+  }
+
+  function stopPreviewStream() {
+    if (_previewTimer) { clearInterval(_previewTimer); _previewTimer = null; }
+  }
+
+  // ── Coupure caméra dès que la page passe en arrière-plan ──────────────────
+  // Garantit qu'aucune vidéo n'est captée sans que l'user soit sur la page.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && stream) {
+      stopCamera();
+    }
+  });
+
+  function stopCamera() {
+    // Arrête l'enregistrement en cours si besoin
+    if (recorder && recorder.state !== 'inactive') {
+      try { recorder.stop(); } catch (_) {}
+    }
+    // Coupe tous les tracks → LED caméra s'éteint sur le téléphone
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    $('preview').srcObject = null;
+    // Déconnecte proprement le socket : le serveur reçoit l'event "disconnect"
+    // et marque le device comme offline (pastille rouge côté PC).
+    // Sans ça, un nouveau socket se crée à la réactivation → doublon dans la liste.
+    stopPreviewStream();
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+    // Affiche l'écran "caméra coupée"
+    $('stage').style.display = 'none';
+    $('cam-off').classList.add('show');
+  }
+
+  $('btn-reactivate').onclick = () => {
+    $('cam-off').classList.remove('show');
+    // Relance le flow d'activation caméra
+    $('btn-start').click();
+  };
+
+  $('cam-name').addEventListener('input', e => {
+    myName = e.target.value.trim() || `Cam ${Math.floor(Math.random() * 99) + 1}`;
+    localStorage.setItem('oxymore_rec_name', myName);
+    if (socket) socket.emit('rec_status', { status: 'ready', name: myName });
+  });
+
+  $('btn-start').onclick = async () => {
+    $('err').style.display = 'none';
+    try {
+      // Caméra arrière — on demande 1080p@30fps sans contrainte min stricte.
+      // Demander trop (4K, 60fps min) force le téléphone dans un mode dégradé
+      // avec ISO élevé → grain sur la preview et l'enregistrement.
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width:      { ideal: 1920 },
+          height:     { ideal: 1080 },
+          frameRate:  { ideal: 30 },
+        },
+        audio: false,
+      });
+
+      // Après avoir obtenu le stream, essaie d'appliquer des réglages avancés
+      // pour réduire le bruit (pas supporté sur tous les appareils → silencieux si échec)
+      try {
+        const vTrack = stream.getVideoTracks()[0];
+        if (vTrack && vTrack.applyConstraints) {
+          await vTrack.applyConstraints({
+            advanced: [
+              { exposureMode:     'continuous' },
+              { focusMode:        'continuous' },
+              { whiteBalanceMode: 'continuous' },
+            ],
+          });
+        }
+      } catch (_) {}
+      $('preview').srcObject = stream;
+      $('preconnect').style.display = 'none';
+      $('stage').style.display = 'flex';
+
+      // Affiche la résolution réelle obtenue dans le bas de l'écran
+      const track    = stream.getVideoTracks()[0];
+      const settings = track ? track.getSettings() : {};
+      const resLabel = settings.width
+        ? `${settings.width}×${settings.height} · ${settings.frameRate ? Math.round(settings.frameRate) + ' fps' : ''}`
+        : '';
+      if (resLabel) $('hud-bottom').innerHTML = resLabel;
+
+      if (!myName) {
+        myName = `Cam ${Math.floor(Math.random() * 99) + 1}`;
+        $('cam-name').value = myName;
+        localStorage.setItem('oxymore_rec_name', myName);
+      } else {
+        $('cam-name').value = myName;
+      }
+
+      connectSocket();
+    } catch (e) {
+      $('err').style.display = 'block';
+      $('err').innerHTML =
+        'Accès caméra refusé.<br><br>' +
+        (location.protocol === 'http:' && location.hostname !== 'localhost'
+          ? 'Ce navigateur exige HTTPS pour accéder à la caméra en LAN. ' +
+            'Réessaie depuis Android Chrome avec autorisation, ou utilise HTTPS.'
+          : `Détail : ${e.message}`);
+    }
+  };
+
+  function connectSocket() {
+    socket = io({ transports: ['websocket', 'polling'] });
+    socket.on('connect', () => {
+      setStatus('ok', 'Connecté');
+      socket.emit('rec_join', { name: myName, ua: navigator.userAgent });
+      startPreviewStream();
+    });
+    socket.on('disconnect', () => {
+      setStatus('off', 'Déconnecté');
+      stopPreviewStream();
+    });
+    socket.on('rec_join_ack', d => {
+      setStatus('ok', 'Prêt · ' + (d.name || myName));
+    });
+
+    socket.on('rec_start', async (d) => {
+      const startAt = d.start_at;
+      const wait = Math.max(0, startAt - Date.now());
+      // Flash de synchro court (cue visuel)
+      const flash = $('sync-flash');
+      setTimeout(() => {
+        flash.classList.add('active');
+        setTimeout(() => flash.classList.remove('active'), 120);
+      }, wait);
+      // Démarre l'enregistrement à T0
+      setTimeout(() => startRecording(), wait);
+    });
+
+    socket.on('rec_stop', () => stopRecording());
+  }
+
+  function setStatus(kind, txt) {
+    $('led').className = 'led ' + (kind || '');
+    $('status-text').textContent = txt;
+  }
+
+  function startRecording() {
+    if (!stream || recorder) return;
+    chunks = [];
+
+    // Priorité : H264 (meilleur support hardware sur Android) → VP9 → VP8 → fallback
+    // Sans codec audio (on a désactivé l'audio dans getUserMedia)
+    const mimeOptions = [
+      'video/mp4;codecs=avc1',           // H264 baseline — hardware encoder sur la plupart des Android
+      'video/webm;codecs=vp9',           // VP9 — bon ratio qualité/taille
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4',
+    ];
+    let mime = '';
+    for (const m of mimeOptions) {
+      if (MediaRecorder.isTypeSupported(m)) { mime = m; break; }
+    }
+
+    // Bitrate selon résolution réelle obtenue
+    const track    = stream.getVideoTracks()[0];
+    const settings = track ? track.getSettings() : {};
+    const px       = (settings.width || 1920) * (settings.height || 1080);
+    const bps      = px >= 1920 * 1080 ? 16_000_000   // 1080p → 16 Mbps
+                   : px >=  1280 * 720  ?  8_000_000   // 720p  →  8 Mbps
+                   :                        4_000_000; // < 720p →  4 Mbps
+
+    try {
+      recorder = new MediaRecorder(stream, {
+        ...(mime ? { mimeType: mime } : {}),
+        videoBitsPerSecond: bps,
+      });
+    } catch (e) {
+      recorder = new MediaRecorder(stream);
+    }
+    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = onRecorderStop;
+    recorder.start(1000); // chunk toutes les 1s
+
+    $('rec-badge').classList.add('show');
+    setStatus('rec', 'Enregistrement…');
+    $('hud-bottom').innerHTML = '<strong>● Enregistrement en cours</strong>';
+    socket && socket.emit('rec_status', { status: 'recording', name: myName });
+  }
+
+  function stopRecording() {
+    if (!recorder) return;
+    try { recorder.stop(); } catch (_) {}
+    $('rec-badge').classList.remove('show');
+    setStatus('upload', 'Upload…');
+    $('hud-bottom').innerHTML = '<strong>Envoi du fichier vers le PC…</strong>';
+    socket && socket.emit('rec_status', { status: 'uploading', name: myName });
+  }
+
+  async function onRecorderStop() {
+    const r = recorder; recorder = null;
+    const mime = r && r.mimeType ? r.mimeType.split(';')[0] : 'video/webm';
+    const ext  = mime.includes('mp4') ? '.mp4' : '.webm';
+    const blob = new Blob(chunks, { type: mime });
+    const form = new FormData();
+    form.append('device', myName);
+    form.append('file', blob, `${myName.replace(/\s/g,'_')}${ext}`);
+    try {
+      const res = await fetch('/api/rec/upload', { method: 'POST', body: form });
+      const d = await res.json();
+      if (d.ok) {
+        setStatus('ok', 'Envoyé ✓');
+        $('hud-bottom').innerHTML = '<strong>✓ Fichier reçu par le PC</strong><br><span style="font-size:11px;color:#888">' +
+                                    Math.round(d.size / 1024) + ' ko · ' + d.filename + '</span>';
+      } else {
+        setStatus('off', 'Erreur upload');
+        $('hud-bottom').innerHTML = 'Erreur : ' + (d.error || 'inconnue');
+      }
+    } catch (e) {
+      setStatus('off', 'Upload échoué');
+      $('hud-bottom').innerHTML = 'Erreur réseau : ' + e.message;
+    }
+    socket && socket.emit('rec_status', { status: 'ready', name: myName });
+    setTimeout(() => {
+      setStatus('ok', 'Prêt');
+      $('hud-bottom').innerHTML = 'En attente d\'un signal du PC…';
+    }, 4000);
+  }
+})();
+</script>
+</body>
+</html>

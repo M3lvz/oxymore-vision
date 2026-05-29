@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Oxymore Vision — Splash</title>
+  <link rel="stylesheet" href="splash-styles.css"/>
+  <script>
+    window.LOGO_SRC = 'assets/oxymore-logo.png';
+    window.ANIM_SRC = 'assets/oxymore-anim.webm';
+  </script>
+  <style>
+    /* Centrage de la fenêtre splash 800x450 */
+    html, body, #app {
+      height: 100%;
+      margin: 0;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .splash-mount {
+      width: 800px;
+      height: 450px;
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- React + Babel locaux (présents dans App/libs/) -->
+  <script src="libs/react.js"></script>
+  <script src="libs/react-dom.js"></script>
+  <script src="libs/babel.min.js"></script>
+
+  <!-- Composants splash extraits du bundle standalone -->
+  <script type="text/babel" data-presets="react" src="splash-shared.jsx"></script>
+  <script type="text/babel" data-presets="react" src="onboarding.jsx"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useRef } = React;
+
+    function Scaler() {
+      const ref = useRef(null);
+      useEffect(() => {
+        const update = () => {
+          if (!ref.current) return;
+          const sw = window.innerWidth, sh = window.innerHeight;
+          const scale = Math.min(sw / 800, sh / 450) * 0.94;
+          ref.current.style.transform = `scale(${scale})`;
+          ref.current.style.transformOrigin = 'center center';
+        };
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+      }, []);
+
+      // Boucle infinie : quand BootSplash appelle onReady, on redémarre
+      // (utile parce que le serveur Flask peut prendre plus que les BOOT_STEPS)
+      const [key, setKey] = useState(0);
+      return (
+        <div ref={ref} className="splash-mount">
+          {/* onReady est un no-op : on ne redémarre plus l'animation.
+              La barre atteint 100 % à ~6.5 s, le texte continue, Python
+              navigue vers l'app à 7 s (MIN_SPLASH_TIME). */}
+          <BootSplash key={key} onReady={() => {}}/>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('app')).render(<Scaler/>);
+  </script>
+</body>
+</html>

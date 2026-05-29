@@ -1,0 +1,28 @@
+# Oxymore Vision — dépendances Python pour le build & le runtime de l'app desktop
+# Note : pose2sim, torch, onnxruntime ne sont PAS ici — ils sont installés dans
+# un venv séparé (MoCap\venv) au 1er lancement via setup_manager.py.
+# Ce fichier ne couvre que l'app shell (Flask + PyWebView + dépendances directes).
+
+# ── Backend HTTP / WebSocket ──────────────────────────────────────────────────
+flask>=3.0
+flask-socketio>=5.3
+flask-cors>=4.0
+eventlet>=0.36
+simple-websocket>=1.0
+wsproto>=1.2
+h11>=0.14
+
+# ── Frontend natif (fenêtre WebView2) ─────────────────────────────────────────
+pywebview>=5.0
+
+# ── Système / configs ─────────────────────────────────────────────────────────
+psutil>=5.9
+toml>=0.10
+tomli-w>=1.0
+requests>=2.31
+qrcode[pil]>=7.4
+pillow>=10.0
+cryptography>=42.0
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+pyinstaller>=6.0

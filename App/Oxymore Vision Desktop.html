@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr" style="background:#000">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Oxymore Vision</title>
+  <link rel="stylesheet" href="styles.css"/>
+  <style>html,body{background:#000;margin:0}</style>
+</head>
+<body style="background:#000;margin:0">
+  <div id="app"></div>
+
+  <!-- React + Babel (local pour mode desktop file://) -->
+  <script src="libs/react.js"></script>
+  <script src="libs/react-dom.js"></script>
+  <script src="libs/babel.min.js"></script>
+
+  <!-- Shim PyWebView EN PREMIER (remplace io() avant les app scripts) -->
+  <script src="pywebview_shim.js"></script>
+
+  <!-- App -->
+  <script type="text/babel" data-presets="react" src="shared.jsx"></script>
+  <script type="text/babel" data-presets="react" src="dashboard.jsx"></script>
+  <script type="text/babel" data-presets="react" src="pipeline.jsx"></script>
+  <script type="text/babel" data-presets="react" src="configuration.jsx"></script>
+  <script type="text/babel" data-presets="react" src="configuration2.jsx"></script>
+  <script type="text/babel" data-presets="react" src="menubar.jsx"></script>
+  <script type="text/babel" data-presets="react" src="explorer.jsx"></script>
+  <script type="text/babel" data-presets="react" src="setup_screen.jsx"></script>
+  <script type="text/babel" data-presets="react" src="views.jsx"></script>
+  <script type="text/babel" data-presets="react" src="results.jsx"></script>
+  <script type="text/babel" data-presets="react" src="key_manager.jsx"></script>
+  <script type="text/babel" data-presets="react" src="dependencies.jsx"></script>
+  <script type="text/babel" data-presets="react" src="rec_mode.jsx"></script>
+  <script type="text/babel" data-presets="react" src="app_connected.jsx"></script>
+</body>
+</html>

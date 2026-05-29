@@ -1,0 +1,30 @@
+# Machine-specific
+.python_path
+.setup_done
+
+# Certificats TLS générés localement
+oxymore_rec.crt
+oxymore_rec.key
+oxymore_rec.ip
+
+# Binaires compilés
+dist/
+
+# Artefacts de build PyInstaller
+build/work/
+buildwork/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Venv (créé au runtime par setup_manager)
+venv/
+.venv/
+
+# Claude
+.claude/
+
+# Fichier de référence design (1.6 Mo, pas du source)
+REC _fichier unique_.html
