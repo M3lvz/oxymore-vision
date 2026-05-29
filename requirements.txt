@@ -22,7 +22,13 @@ tomli-w>=1.0
 requests>=2.31
 qrcode[pil]>=7.4
 pillow>=10.0
-cryptography>=42.0
+cryptography>=46.0.7
+
+# ── Pins sécurité (dépendances transitives — vulnérabilités Snyk) ─────────────
+click>=8.3.3
+idna>=3.15
+urllib3>=2.7.0
+setuptools>=78.1.1
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 pyinstaller>=6.0
