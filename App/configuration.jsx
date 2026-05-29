@@ -119,7 +119,7 @@ function TabPose({ cfg, set }) {
           <Select
             value={cfg.pose.output_format}
             onChange={v => set('pose.output_format', v)}
-            options={['openpose','json','csv','c3d']}
+            options={['openpose','mmpose','deeplabcut','none']}
           />
         </Field>
       </div>

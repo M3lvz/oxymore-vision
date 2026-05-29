@@ -50,7 +50,7 @@ function TabTri({ cfg, set }) {
           <Select
             value={cfg.triangulation.fill_large_gaps_with}
             onChange={v => set('triangulation.fill_large_gaps_with', v)}
-            options={['last_value','nan','zero']}
+            options={['last_value','nan','zeros']}
           />
         </Field>
         <Field label="Sections à conserver">
@@ -114,7 +114,7 @@ function TabFilt({ cfg, set }) {
         />
       </Field>
 
-      {(type === 'butterworth' || type === 'butterworth_on_speed') && (
+      {type === 'butterworth' && (
         <>
           <SectionHeading>Butterworth</SectionHeading>
           <div className="grid-2">
@@ -125,6 +125,22 @@ function TabFilt({ cfg, set }) {
             <Field label="Ordre" help="4 par défaut">
               <Input value={cfg.filtering.butterworth.order}
                      onChange={v => set('filtering.butterworth.order', v)} />
+            </Field>
+          </div>
+        </>
+      )}
+
+      {type === 'butterworth_on_speed' && (
+        <>
+          <SectionHeading>Butterworth on Speed</SectionHeading>
+          <div className="grid-2">
+            <Field label="Fréquence de coupure (Hz)" help="Signal différencié, filtré puis réintégré">
+              <Input value={cfg.filtering.butterworth_on_speed.cut_off_frequency}
+                     onChange={v => set('filtering.butterworth_on_speed.cut_off_frequency', v)} />
+            </Field>
+            <Field label="Ordre">
+              <Input value={cfg.filtering.butterworth_on_speed.order}
+                     onChange={v => set('filtering.butterworth_on_speed.order', v)} />
             </Field>
           </div>
         </>
