@@ -4,7 +4,7 @@
 Oxymore Vision — Backend Flask + WebSocket
 """
 
-import os, sys, json, subprocess, threading, webbrowser, socket, tempfile, secrets
+import os, sys, json, subprocess, threading, webbrowser, socket, tempfile, secrets, ast
 from pathlib import Path
 
 # ─── Charge .env si présent (stdlib pure, pas de python-dotenv requis) ───────
@@ -927,13 +927,38 @@ def set_config():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def _smart_coerce(value):
+    """
+    Convertit une string vers le type Python approprié pour le TOML.
+      '60'        → 60 (int)          '0.5'      → 0.5 (float)
+      'true'      → True              'false'    → False
+      '[0, 144]'  → [0, 144] (list)   'auto'     → 'auto' (str, inchangé)
+    Les valeurs déjà typées (bool, int, float, list) sont renvoyées telles quelles.
+    """
+    if not isinstance(value, str):
+        return value
+    v = value.strip()
+    if v.lower() == 'true':  return True
+    if v.lower() == 'false': return False
+    try:               return int(v)
+    except ValueError: pass
+    try:               return float(v)
+    except ValueError: pass
+    if v.startswith('[') and v.endswith(']'):
+        try:
+            parsed = ast.literal_eval(v)
+            if isinstance(parsed, list):
+                return parsed
+        except (ValueError, SyntaxError):
+            pass
+    return value
+
 def _homogenize_arrays(obj):
     """
-    Homogénéise les tableaux numériques pour le TOML :
-      - Liste tout-int (ex: [0, 144])       → reste [0, 144]            (essentiel pour frame_range)
-      - Liste tout-float (ex: [0.5, 1.0])   → reste [0.5, 1.0]
-      - Liste mixte (ex: [0, 1.5])          → tout en float [0.0, 1.5]  (Pose2Sim refuse les types mixtes)
-      - Liste de listes (matrice)           → récurse
+    Applique _smart_coerce récursivement, puis homogénéise les tableaux numériques :
+      - Liste tout-int (ex: [0, 144])   → reste [0, 144]
+      - Liste tout-float                 → reste tout-float
+      - Liste mixte int+float            → tout en float (Pose2Sim refuse les types mixtes)
     """
     if isinstance(obj, dict):
         return {k: _homogenize_arrays(v) for k, v in obj.items()}
@@ -942,15 +967,10 @@ def _homogenize_arrays(obj):
         is_num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)
         if items and all(is_num(i) for i in items):
             has_float = any(isinstance(i, float) for i in items)
-            # Tout int (ou tout float déjà) → on ne touche pas
-            # Mixte (au moins un float ET au moins un int pur) → on harmonise en float
             if has_float and any(isinstance(i, int) and not isinstance(i, bool) for i in items):
                 return [float(i) for i in items]
-            return items
-        if items and all(isinstance(i, list) for i in items):
-            return [_homogenize_arrays(i) for i in items]
         return items
-    return obj
+    return _smart_coerce(obj)
 
 # ─── Environnement propre pour subprocesses ──────────────────────────────────
 def _get_clean_env() -> dict:
