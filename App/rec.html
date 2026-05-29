@@ -294,13 +294,16 @@
 
       connectSocket();
     } catch (e) {
-      $('err').style.display = 'block';
-      $('err').innerHTML =
-        'Accès caméra refusé.<br><br>' +
-        (location.protocol === 'http:' && location.hostname !== 'localhost'
-          ? 'Ce navigateur exige HTTPS pour accéder à la caméra en LAN. ' +
-            'Réessaie depuis Android Chrome avec autorisation, ou utilise HTTPS.'
-          : `Détail : ${e.message}`);
+      const errEl = $('err');
+      errEl.style.display = 'block';
+      if (location.protocol === 'http:' && location.hostname !== 'localhost') {
+        errEl.innerHTML = 'Accès caméra refusé.<br><br>Ce navigateur exige HTTPS pour accéder à la caméra en LAN. Réessaie depuis Android Chrome avec autorisation, ou utilise HTTPS.';
+      } else {
+        errEl.innerHTML = 'Accès caméra refusé.<br><br>';
+        const detail = document.createElement('span');
+        detail.textContent = 'Détail : ' + e.message;
+        errEl.appendChild(detail);
+      }
     }
   };
 
@@ -406,15 +409,19 @@
       const d = await res.json();
       if (d.ok) {
         setStatus('ok', 'Envoyé ✓');
-        $('hud-bottom').innerHTML = '<strong>✓ Fichier reçu par le PC</strong><br><span style="font-size:11px;color:#888">' +
-                                    Math.round(d.size / 1024) + ' ko · ' + d.filename + '</span>';
+        const hud = $('hud-bottom');
+        hud.innerHTML = '';
+        const s = document.createElement('strong'); s.textContent = '✓ Fichier reçu par le PC'; hud.appendChild(s);
+        hud.appendChild(document.createElement('br'));
+        const info = document.createElement('span'); info.style.cssText = 'font-size:11px;color:#888';
+        info.textContent = Math.round(d.size / 1024) + ' ko · ' + d.filename; hud.appendChild(info);
       } else {
         setStatus('off', 'Erreur upload');
-        $('hud-bottom').innerHTML = 'Erreur : ' + (d.error || 'inconnue');
+        $('hud-bottom').textContent = 'Erreur : ' + (d.error || 'inconnue');
       }
     } catch (e) {
       setStatus('off', 'Upload échoué');
-      $('hud-bottom').innerHTML = 'Erreur réseau : ' + e.message;
+      $('hud-bottom').textContent = 'Erreur réseau : ' + e.message;
     }
     socket && socket.emit('rec_status', { status: 'ready', name: myName });
     setTimeout(() => {

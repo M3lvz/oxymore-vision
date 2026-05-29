@@ -4,7 +4,7 @@
 Oxymore Vision — Backend Flask + WebSocket
 """
 
-import os, sys, json, subprocess, threading, webbrowser, socket, tempfile
+import os, sys, json, subprocess, threading, webbrowser, socket, tempfile, secrets
 from pathlib import Path
 
 # ─── Charge .env si présent (stdlib pure, pas de python-dotenv requis) ───────
@@ -112,8 +112,18 @@ _ADMIN_TOKEN         = os.environ.get("OXYMORE_ADMIN_TOKEN", os.environ.get("OXY
 _admin_sessions: dict = {}   # token -> expiry datetime
 
 # ─── Flask ───────────────────────────────────────────────────────────────────
+def _load_secret_key() -> str:
+    """Charge ou génère une SECRET_KEY persistante (jamais dans le source)."""
+    key_file = (Path(sys.executable).parent if getattr(sys, 'frozen', False)
+                else Path(__file__).parent) / ".secret_key"
+    if key_file.exists():
+        return key_file.read_text(encoding="utf-8").strip()
+    key = secrets.token_hex(32)
+    key_file.write_text(key, encoding="utf-8")
+    return key
+
 app = Flask(__name__, static_folder=str(UI_DIR), static_url_path="")
-app.config["SECRET_KEY"] = "oxymore-vision-2026"
+app.config["SECRET_KEY"] = _load_secret_key()
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
@@ -1106,10 +1116,24 @@ def open_file():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def _is_safe_path(path: str) -> bool:
+    """Vérifie que le chemin est à l'intérieur du répertoire projet actif."""
+    project_dir = state.get("project_dir", "")
+    if not project_dir or not path:
+        return False
+    try:
+        resolved = Path(path).resolve()
+        base     = Path(project_dir).resolve()
+        return resolved == base or base in resolved.parents
+    except Exception:
+        return False
+
 @app.route("/api/files/delete", methods=["POST"])
 def delete_file():
     import shutil
     path = request.json.get("path", "")
+    if not _is_safe_path(path):
+        return jsonify({"error": "Chemin non autorisé"}), 403
     if not os.path.exists(path):
         return jsonify({"error": "Introuvable"}), 404
     try:
@@ -1122,6 +1146,8 @@ def delete_file():
 def clean_project():
     import shutil
     proj = request.json.get("path", state["project_dir"])
+    if not _is_safe_path(proj) and proj != state.get("project_dir", ""):
+        return jsonify({"error": "Chemin non autorisé"}), 403
     deleted = []
     for item in ["pose","pose-sync","pose-associated","pose-3d",
                  "kinematics","logs.txt","opensim.log"]:
@@ -1168,7 +1194,9 @@ def viewer_trc():
     file_path = request.args.get("file", "")
     max_frames = int(request.args.get("max_frames", 300))  # limite pour perf
 
-    if not file_path or not os.path.exists(file_path):
+    if not file_path or not _is_safe_path(file_path):
+        return jsonify({"error": "Chemin non autorisé"}), 403
+    if not os.path.exists(file_path):
         return jsonify({"error": "Fichier introuvable"}), 404
 
     try:
