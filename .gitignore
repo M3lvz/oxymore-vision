@@ -1,6 +1,7 @@
 # Machine-specific
 .python_path
 .setup_done
+.secret_key
 
 # Certificats TLS générés localement
 oxymore_rec.crt
