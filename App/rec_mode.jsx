@@ -170,6 +170,21 @@ function RecMode({ project, onExit }) {
     }
   }, []);
 
+  // Démarre/stoppe le receiver à la volée si la case est cochée pendant le REK
+  useEffectREC(() => {
+    if (!recording) return;
+    if (handEnabled) {
+      fetch('/api/rec/hand/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ protocol: handProto, port: handProto === 'tcp' ? 8000 : 9000, project_dir: project?.path }),
+      }).then(r => r.json()).then(setHandStatus).catch(() => {});
+    } else {
+      fetch('/api/rec/hand/stop', { method: 'POST' }).catch(() => {});
+      setHandStatus(null);
+      setHandFrame(null);
+    }
+  }, [handEnabled, recording]);
+
   // Poll hand status while recording
   useEffectREC(() => {
     if (!recording || !handEnabled) return;
@@ -706,8 +721,8 @@ function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, 
           <label className="hand-toggle-label">
             <div
               className={['hand-checkbox', handEnabled && 'checked'].filter(Boolean).join(' ')}
-              onClick={() => !recording && onHandEnabled(v => !v)}
-              style={{ cursor: recording ? 'not-allowed' : 'pointer' }}
+              onClick={() => onHandEnabled(v => !v)}
+              style={{ cursor: 'pointer' }}
             >
               {handEnabled && (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width:11, height:11 }}>
@@ -829,9 +844,9 @@ function HandPreview({ frame }) {
 
     function drawHand(lm, color) {
       if (!lm || lm.length < 21) return;
-      // Normalize to [0,1] across both axes using X/Z plane (Y=up, so X/Z = horizontal)
+      // Projection X/Y : Y est la hauteur (doigt vers le haut), X est latéral
       const xs = lm.map(p => p[0]);
-      const ys = lm.map(p => p[2]); // use Z as vertical in 2D view
+      const ys = lm.map(p => p[1]);
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minY = Math.min(...ys), maxY = Math.max(...ys);
       const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
