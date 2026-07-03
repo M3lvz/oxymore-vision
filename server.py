@@ -66,6 +66,7 @@ else:
 UI_DIR      = BASE_DIR / "App"
 RUNNER_PATH    = BASE_DIR / "pose2sim_runner.py"
 BVH_SCRIPT_PATH = BASE_DIR / "osim_to_bvh.py"
+FBX_SCRIPT_PATH = BASE_DIR / "osim_to_fbx.py"
 
 # ── Copie du runner hors de _MEIPASS ─────────────────────────────────────────
 # PROBLÈME : quand le subprocess venv Python exécute un script situé dans
@@ -88,6 +89,9 @@ if getattr(sys, 'frozen', False):
         _bvh_copy = _tmp_runner_dir / "osim_to_bvh.py"
         _shutil.copy2(str(BVH_SCRIPT_PATH), str(_bvh_copy))
         BVH_SCRIPT_PATH = _bvh_copy
+        _fbx_copy = _tmp_runner_dir / "osim_to_fbx.py"
+        _shutil.copy2(str(FBX_SCRIPT_PATH), str(_fbx_copy))
+        FBX_SCRIPT_PATH = _fbx_copy
     except Exception:
         pass  # fall back to _MEIPASS path si la copie échoue
 
@@ -153,6 +157,16 @@ try:
 except Exception:
     REC_DIR = Path(tempfile.gettempdir()) / "OxymoreVision_rec"
     REC_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── Hand Tracking Receiver ────────────────────────────────────────────────────
+try:
+    from hand_receiver import HandReceiver, setup_adb_tunnel, check_adb
+    _hand_receiver = HandReceiver()
+except Exception:
+    _hand_receiver = None
+
+def _hand_output_path(project_dir: str) -> str:
+    return os.path.join(project_dir, "kinematics", "hand_tracking.json")
 
 # Session REC en cours : devices, fichiers uploadés, état
 _rec_state = {
@@ -1301,6 +1315,58 @@ def _parse_trc(path, max_frames=300):
     }
 
 
+# ─── Hand Tracking endpoints ──────────────────────────────────────────────────
+
+@app.route("/api/rec/hand/status", methods=["GET"])
+def hand_status():
+    if not _hand_receiver:
+        return jsonify({"error": "Hand receiver non disponible"}), 503
+    return jsonify(_hand_receiver.status)
+
+@app.route("/api/rec/hand/start", methods=["POST"])
+def hand_start():
+    if not _hand_receiver:
+        return jsonify({"error": "Hand receiver non disponible"}), 503
+    body  = request.get_json(silent=True) or {}
+    proto = body.get("protocol", "tcp")
+    port  = body.get("port")
+    proj  = state.get("project_dir") or body.get("project_dir", "")
+    if not proj:
+        return jsonify({"error": "Aucun projet actif"}), 400
+    out = _hand_output_path(proj)
+
+    def _on_frame(frame):
+        socketio.emit("hand_frame", frame)
+
+    ok = _hand_receiver.start(out, protocol=proto, port=port, on_frame=_on_frame)
+    return jsonify({"ok": ok, "output": out, **_hand_receiver.status})
+
+@app.route("/api/rec/hand/stop", methods=["POST"])
+def hand_stop():
+    if not _hand_receiver:
+        return jsonify({"error": "Hand receiver non disponible"}), 503
+    _hand_receiver.stop()
+    return jsonify({"ok": True, **_hand_receiver.status})
+
+@app.route("/api/rec/hand/adb-setup", methods=["POST"])
+def hand_adb_setup():
+    body = request.get_json(silent=True) or {}
+    port = int(body.get("port", 8000))
+    ok, msg = setup_adb_tunnel(port)
+    adb_info = check_adb()
+    return jsonify({"ok": ok, "message": msg, **adb_info})
+
+@app.route("/api/rec/hand/check", methods=["GET"])
+def hand_check():
+    """Vérifie si hand_tracking.json existe dans le projet actif."""
+    proj = request.args.get("project") or state.get("project_dir", "")
+    if not proj:
+        return jsonify({"exists": False})
+    path = _hand_output_path(proj)
+    exists = os.path.isfile(path)
+    size   = os.path.getsize(path) if exists else 0
+    return jsonify({"exists": exists, "path": path, "size": size})
+
 # ─── Export BVH ───────────────────────────────────────────────────────────────
 @app.route("/api/export/bvh", methods=["POST"])
 def export_bvh():
@@ -1363,6 +1429,71 @@ def export_bvh():
         )
     except subprocess.TimeoutExpired:
         return jsonify({"error": "Timeout dépassé (> 10 min) — séquence trop longue ?"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        _sh.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ─── Export FBX ───────────────────────────────────────────────────────────────
+@app.route("/api/export/fbx", methods=["POST"])
+def export_fbx():
+    """Convertit un résultat OpenSim (.osim + .mot) en .fbx via Blender headless
+    et retourne le fichier encodé en base64 (JSON)."""
+    import tempfile as _tmpmod, shutil as _sh, base64 as _b64
+
+    body        = request.get_json(silent=True) or {}
+    osim_path   = body.get("osim_path", "")
+    mot_path    = body.get("mot_path", "")
+    scale       = float(body.get("scale", 1.0))
+    despike_thr = float(body.get("despike_thr", 35.0))
+    despike_win = max(1, int(body.get("despike_win", 4)))
+    despike_gap = max(1, int(body.get("despike_gap", 30)))
+    apose_deg   = float(body.get("apose_deg", 0.0))
+
+    if not osim_path or not os.path.isfile(osim_path) or not _is_safe_path(osim_path):
+        return jsonify({"error": "Fichier .osim introuvable ou non autorisé"}), 400
+    if not mot_path or not os.path.isfile(mot_path) or not _is_safe_path(mot_path):
+        return jsonify({"error": "Fichier .mot introuvable ou non autorisé"}), 400
+
+    if not FBX_SCRIPT_PATH.exists():
+        return jsonify({"error": "Convertisseur FBX introuvable (osim_to_fbx.py)"}), 500
+
+    python = get_venv_python()
+    if not python or not os.path.exists(python):
+        return jsonify({"error": "Python venv introuvable — complétez l'installation d'abord"}), 500
+
+    mot_stem = Path(mot_path).stem
+    tmp_dir  = Path(_tmpmod.mkdtemp(prefix="oxymore_fbx_"))
+    fbx_out  = tmp_dir / f"{mot_stem}.fbx"
+
+    try:
+        cmd = [
+            python, str(FBX_SCRIPT_PATH),
+            osim_path, mot_path, str(fbx_out),
+            "--scale",        str(scale),
+            "--despike-thr",  str(despike_thr),
+            "--despike-win",  str(despike_win),
+            "--despike-gap",  str(despike_gap),
+            "--apose-deg",    str(apose_deg),
+        ]
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=600,
+            encoding="utf-8", errors="replace",
+            env=_get_clean_env(),
+        )
+        if r.returncode != 0:
+            err = ((r.stdout or "") + (r.stderr or "")).strip()
+            return jsonify({"error": f"Conversion FBX échouée :\n{err[-600:]}"}), 500
+
+        if not fbx_out.exists():
+            return jsonify({"error": "Fichier FBX non généré (Blender introuvable ?)"}), 500
+
+        fbx_b64 = _b64.b64encode(fbx_out.read_bytes()).decode("ascii")
+        return jsonify({"data": fbx_b64, "filename": f"{mot_stem}.fbx"})
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Timeout dépassé (> 10 min)"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -1555,18 +1686,38 @@ def on_rec_frame(data):
 @socketio.on("rec_command")
 def on_rec_command(data):
     """Commande émise par le PC vers tous les téléphones (start/stop)."""
-    cmd = (data or {}).get("cmd")
+    data = data or {}
+    cmd  = data.get("cmd")
     if cmd == "start":
         _rec_state["recording"] = True
-        # Timestamp côté serveur pour synchro (T+500ms pour laisser le temps de propager)
         import time as _t
         start_at = _t.time() * 1000 + 500  # ms epoch
         socketio.emit("rec_start", {"start_at": start_at})
         print(f"[rec] START broadcast (start_at={start_at})", flush=True)
+
+        # Démarrage hand tracking si demandé
+        ht = data.get("hand_tracking")
+        if ht and _hand_receiver and state.get("project_dir"):
+            out = _hand_output_path(state["project_dir"])
+            proto = ht.get("protocol", "tcp")
+            port  = ht.get("port")
+
+            def _on_hand_frame(frame):
+                socketio.emit("hand_frame", frame)
+
+            ok = _hand_receiver.start(out, protocol=proto, port=port,
+                                       on_frame=_on_hand_frame)
+            print(f"[rec] Hand tracking démarré : {proto} ({out}) — ok={ok}", flush=True)
+
     elif cmd == "stop":
         _rec_state["recording"] = False
         socketio.emit("rec_stop", {})
         print("[rec] STOP broadcast", flush=True)
+
+        # Arrêt hand tracking
+        if _hand_receiver and _hand_receiver.status["running"]:
+            _hand_receiver.stop()
+            print("[rec] Hand tracking arrêté.", flush=True)
 
 
 @socketio.on("disconnect")

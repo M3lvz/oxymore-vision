@@ -21,6 +21,12 @@ def main():
     # Se placer dans le dossier projet
     os.chdir(project_dir)
 
+    # ── Étapes custom (hors Pose2Sim) ────────────────────────────────────────
+    if step == "handFusion":
+        _run_hand_fusion(project_dir)
+        sys.exit(0)
+    # ─────────────────────────────────────────────────────────────────────────
+
     # Import pose2sim
     try:
         from Pose2Sim import Pose2Sim
@@ -163,6 +169,68 @@ def _fix_double_mot(project_dir):
         if new_name != f and not os.path.exists(new_name):
             os.rename(f, new_name)
             print(f"[RUNNER] .mot renommé : {os.path.basename(new_name)}", flush=True)
+
+def _run_hand_fusion(project_dir: str):
+    """Fusionne les données hand tracking avec la cinématique corps.
+    Appelle hand_to_bvh.py qui génère un BVH étendu (corps + doigts)."""
+    import glob
+
+    hand_file = os.path.join(project_dir, "kinematics", "hand_tracking.json")
+    if not os.path.isfile(hand_file):
+        print(f"ERREUR: hand_tracking.json introuvable dans {project_dir}/kinematics/",
+              flush=True)
+        sys.exit(1)
+
+    # Trouver .osim et .mot
+    kin_dir = os.path.join(project_dir, "kinematics")
+    osim_files = sorted(glob.glob(os.path.join(kin_dir, "*.osim")))
+    mot_files  = sorted(glob.glob(os.path.join(kin_dir, "*.mot")))
+
+    def _score(p):
+        n = os.path.basename(p).upper()
+        return 0 if "LSTM" in n else (1 if "FILT" in n else 2)
+
+    osim_files.sort(key=_score)
+    mot_files.sort(key=_score)
+
+    if not osim_files:
+        print("ERREUR: Aucun fichier .osim dans kinematics/ — lancez l'étape Cinématique d'abord.", flush=True)
+        sys.exit(1)
+    if not mot_files:
+        print("ERREUR: Aucun fichier .mot dans kinematics/ — lancez l'étape Cinématique d'abord.", flush=True)
+        sys.exit(1)
+
+    osim_path = osim_files[0]
+    mot_path  = mot_files[0]
+    out_bvh   = os.path.join(kin_dir, os.path.splitext(os.path.basename(mot_path))[0] + "_hands.bvh")
+
+    print(f"[RUNNER] handFusion : {os.path.basename(osim_path)} + {os.path.basename(mot_path)}", flush=True)
+    print(f"[RUNNER] hand_tracking : {hand_file}", flush=True)
+    print(f"[RUNNER] Sortie BVH    : {out_bvh}", flush=True)
+
+    # Importer hand_to_bvh depuis le même dossier que ce runner
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        from hand_to_bvh import fuse_body_and_hands
+    except ImportError as e:
+        print(f"ERREUR: Impossible d'importer hand_to_bvh : {e}", flush=True)
+        sys.exit(2)
+
+    try:
+        fuse_body_and_hands(
+            osim_path=osim_path,
+            mot_path=mot_path,
+            hand_json=hand_file,
+            output_bvh=out_bvh,
+        )
+        print(f"[RUNNER] Terminé : handFusion → {out_bvh}", flush=True)
+    except Exception as e:
+        import traceback
+        print(f"[RUNNER] ERREUR handFusion :", flush=True)
+        traceback.print_exc()
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
