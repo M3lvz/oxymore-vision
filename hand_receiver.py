@@ -153,10 +153,27 @@ class HandReceiver:
 
     @staticmethod
     def _floats(s: str) -> list[float]:
+        # Format point : "0.1077, 0.8713"
         try:
             return [float(v) for v in s.split(",") if v.strip()]
         except ValueError:
             return []
+
+    @staticmethod
+    def _floats_fr(s: str) -> list[float]:
+        # Format HTS réel : décimale=virgule, champ séparé par virgule+espace
+        # ex: "0,1077, 0,8713, -0,080"  →  [0.1077, 0.8713, -0.080]
+        try:
+            parts = [p.strip() for p in s.split(", ") if p.strip()]
+            return [float(p.replace(",", ".")) for p in parts]
+        except ValueError:
+            return []
+
+    @staticmethod
+    def _extract_values(line: str) -> str:
+        """Extrait les valeurs après le dernier ':' (gère 'Right wrist | f=.. | t=..:, vals')."""
+        pos = line.rfind(":")
+        return line[pos + 1:].lstrip(", ") if pos != -1 else ""
 
     @staticmethod
     def _flip_z_landmarks(lm: list) -> list:
@@ -175,21 +192,20 @@ class HandReceiver:
         if not line:
             return None
         for side_str, side_key in (("Right", "right"), ("Left", "left")):
-            if line.startswith(f"{side_str} wrist:"):
-                # Nouvelle main droite = nouveau frame
+            if line.startswith(f"{side_str} wrist"):
                 if side_key == "right" and pending:
-                    frame = pending.copy()
                     pending.clear()
-                vals = self._floats(line.split(":", 1)[1])
+                raw = self._extract_values(line)
+                vals = self._floats_fr(raw) or self._floats(raw)
                 if len(vals) >= 7:
                     pending.setdefault(side_key, {})["wrist"] = self._flip_z_wrist(vals[:7])
                 return None
-            elif line.startswith(f"{side_str} landmarks:"):
-                vals = self._floats(line.split(":", 1)[1])
+            elif line.lower().startswith(f"{side_str.lower()} landmarks"):
+                raw = self._extract_values(line)
+                vals = self._floats_fr(raw) or self._floats(raw)
                 if len(vals) >= 63:
                     lm = [[vals[i*3], vals[i*3+1], vals[i*3+2]] for i in range(21)]
                     pending.setdefault(side_key, {})["landmarks"] = self._flip_z_landmarks(lm)
-                # Si on a les deux mains complètes, émettre le frame
                 if (pending.get("right", {}).get("wrist") and
                         pending.get("right", {}).get("landmarks") and
                         side_key == "left" and
