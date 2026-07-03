@@ -868,35 +868,53 @@ function HandPreview({ frame }) {
 
     const lmR = frame.right?.landmarks;
     const lmL = frame.left?.landmarks;
+    if (!lmR && !lmL) return;
 
-    // Collecte tous les points pour normalisation globale
-    const allPts = [...(lmR || []), ...(lmL || [])];
-    if (allPts.length === 0) return;
+    const pad = 8;
+    const labelH = 14;
+    const half = W / 2;
 
-    // Projection front-view : X horizontal, Y vertical (inversé car canvas Y↓)
-    const pad = 14;
-    const xs = allPts.map(p => p[0]);
-    const ys = allPts.map(p => p[1]);
-    const minX = Math.min(...xs), maxX = Math.max(...xs);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const rX = maxX - minX || 0.001;
-    const rY = maxY - minY || 0.001;
-    const scale = Math.min((W - pad*2) / rX, (H - pad*2) / rY) * 0.88;
-    const cx = (W - rX * scale) / 2;
-    const cy = (H - rY * scale) / 2;
+    // Séparateur pointillé au centre
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath(); ctx.moveTo(half, pad); ctx.lineTo(half, H - labelH - 2); ctx.stroke();
+    ctx.restore();
 
-    function proj(p) {
-      return [
-        cx + (p[0] - minX) * scale,
-        cy + (maxY - p[1]) * scale,   // flip Y : doigts vers le haut
-      ];
-    }
+    // Dessine une main dans sa zone (zoneX .. zoneX+zoneW)
+    // mirrorX : inverse l'axe X dans la zone → vue du porteur du casque
+    function drawInZone(lm, fingerColors, zoneX, zoneW, label, labelColor, mirrorX) {
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      if (!lm || lm.length < 21) {
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillText(label, zoneX + zoneW / 2, H - 4);
+        ctx.textAlign = 'left';
+        return;
+      }
+      const xs = lm.map(p => p[0]);
+      const ys = lm.map(p => p[1]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const rX = maxX - minX || 0.001;
+      const rY = maxY - minY || 0.001;
+      const drawW = zoneW - pad * 2;
+      const drawH = H - pad * 2 - labelH;
+      const scale = Math.min(drawW / rX, drawH / rY) * 0.85;
+      const ox = zoneX + (zoneW - rX * scale) / 2;
+      const oy = pad + (drawH - rY * scale) / 2;
 
-    function drawHand(lm, fingerColors, baseAlpha) {
-      if (!lm || lm.length < 21) return;
+      function proj(p) {
+        const rawX = ox + (p[0] - minX) * scale;
+        // Vue du user : on inverse X dans la zone
+        const x = mirrorX ? (2 * zoneX + zoneW - rawX) : rawX;
+        const y = oy + (maxY - p[1]) * scale;
+        return [x, y];
+      }
 
-      // Paume (gris)
-      ctx.strokeStyle = `rgba(255,255,255,${baseAlpha * 0.25})`;
+      // Paume
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
       ctx.lineWidth = 1.5;
       for (const [a, b] of [[5,9],[9,13],[13,17],[0,17],[0,5]]) {
         const [ax,ay] = proj(lm[a]), [bx,by] = proj(lm[b]);
@@ -908,7 +926,7 @@ function HandPreview({ frame }) {
       fingers.forEach((chain, fi) => {
         ctx.strokeStyle = fingerColors[fi];
         ctx.lineWidth = 2;
-        for (const [a,b] of [[0,chain[0]], [chain[0],chain[1]], [chain[1],chain[2]], [chain[2],chain[3]]]) {
+        for (const [a,b] of [[0,chain[0]],[chain[0],chain[1]],[chain[1],chain[2]],[chain[2],chain[3]]]) {
           const [ax,ay] = proj(lm[a]), [bx,by] = proj(lm[b]);
           ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
         }
@@ -917,34 +935,27 @@ function HandPreview({ frame }) {
       // Joints
       for (let i = 0; i < 21; i++) {
         const [px,py] = proj(lm[i]);
-        const fi = i === 0 ? -1 : Math.floor((i-1)/4);
-        ctx.fillStyle = i === 0
-          ? `rgba(255,255,255,${baseAlpha * 0.9})`
-          : fingerColors[fi] || fingerColors[0];
+        const fi = Math.max(0, Math.floor((i - 1) / 4));
+        ctx.fillStyle = i === 0 ? 'rgba(255,255,255,0.9)' : (fingerColors[fi] || fingerColors[0]);
         ctx.beginPath();
-        ctx.arc(px, py, i === 0 ? 4 : (i % 4 === 0 ? 2.5 : 2), 0, Math.PI*2);
+        ctx.arc(px, py, i === 0 ? 4 : (i % 4 === 0 ? 2.5 : 2), 0, Math.PI * 2);
         ctx.fill();
       }
+
+      // Label
+      ctx.fillStyle = labelColor;
+      ctx.fillText(label, zoneX + zoneW / 2, H - 4);
+      ctx.textAlign = 'left';
     }
 
-    drawHand(lmL, FINGER_COLORS_BLUE, 1);
-    drawHand(lmR, FINGER_COLORS_TEAL, 1);
-
-    // Labels
-    ctx.font = '9px monospace';
-    ctx.fillStyle = 'rgba(129,140,248,0.8)';
-    if (lmL) ctx.fillText('G', proj(lmL[0])[0] - 12, proj(lmL[0])[1] + 4);
-    ctx.fillStyle = 'rgba(45,212,191,0.8)';
-    if (lmR) ctx.fillText('D', proj(lmR[0])[0] + 6, proj(lmR[0])[1] + 4);
+    // Main gauche (G) à gauche, main droite (D) à droite — vue du porteur du casque
+    drawInZone(lmL, FINGER_COLORS_BLUE, 0,    half, 'G', 'rgba(129,140,248,0.9)', true);
+    drawInZone(lmR, FINGER_COLORS_TEAL, half, half, 'D', 'rgba(45,212,191,0.9)',  true);
 
   }, [frame]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={300} height={180}
-      className="hand-preview-canvas"
-    />
+    <canvas ref={canvasRef} width={300} height={180} className="hand-preview-canvas" />
   );
 }
 
