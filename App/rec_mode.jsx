@@ -920,7 +920,8 @@ function HandPreview({ frame }) {
       const lm = (wData && wData.length >= 7)
         ? rawLm.map(p => {
             const s = conjQuat ? -1 : 1;
-            return rotVec(s*wData[3], s*wData[4], s*wData[5], wData[6], p[0], p[1], p[2]);
+            const [rx, ry, rz] = rotVec(s*wData[3], s*wData[4], s*wData[5], wData[6], p[0], p[1], p[2]);
+            return [rx, conjQuat ? -ry : ry, rz];
           })
         : rawLm;
 
