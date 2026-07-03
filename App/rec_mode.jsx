@@ -856,14 +856,14 @@ const FINGER_COLORS_BLUE = [
   'rgba(79,70,229,0.9)',
 ];
 
-// Retourne le vecteur local (axisIdx=0→X, 1→Y, 2→Z) d'un quaternion [qx,qy,qz,qw]
-// projeté sur le plan XY canvas (Y inversé car canvas Y↓)
-function quatAxis2D(qx, qy, qz, qw, axisIdx) {
-  let wx, wy;
-  if (axisIdx === 0) { wx = 1-2*(qy*qy+qz*qz); wy = 2*(qx*qy+qw*qz); }
-  else if (axisIdx === 1) { wx = 2*(qx*qy-qw*qz); wy = 1-2*(qx*qx+qz*qz); }
-  else { wx = 2*(qx*qz+qw*qy); wy = 2*(qy*qz-qw*qx); }
-  return [wx, -wy]; // flip Y pour canvas
+// Applique une quaternion [qx,qy,qz,qw] à un vecteur [vx,vy,vz]
+function rotVec(qx, qy, qz, qw, vx, vy, vz) {
+  const tx = 2*(qy*vz - qz*vy);
+  const ty = 2*(qz*vx - qx*vz);
+  const tz = 2*(qx*vy - qy*vx);
+  return [vx + qw*tx + qy*tz - qz*ty,
+          vy + qw*ty + qz*tx - qx*tz,
+          vz + qw*tz + qx*ty - qy*tx];
 }
 
 function HandPreview({ frame }) {
@@ -878,7 +878,6 @@ function HandPreview({ frame }) {
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    // Mémorise l'objet main complet (wrist + landmarks) → freeze sur perte tracking
     if (frame?.left)  lastLRef.current = frame.left;
     if (frame?.right) lastRRef.current = frame.right;
 
@@ -893,7 +892,6 @@ function HandPreview({ frame }) {
     const labelH = 14;
     const half = W / 2;
 
-    // Séparateur pointillé
     ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
@@ -902,7 +900,7 @@ function HandPreview({ frame }) {
     ctx.restore();
 
     function drawInZone(hand, fingerColors, zoneX, zoneW, label, labelColor, stale) {
-      const lm    = hand?.landmarks;
+      const rawLm = hand?.landmarks;
       const wData = hand?.wrist;  // [x,y,z, qx,qy,qz,qw]
 
       ctx.save();
@@ -910,12 +908,20 @@ function HandPreview({ frame }) {
 
       ctx.font = 'bold 9px monospace';
       ctx.textAlign = 'center';
-      if (!lm || lm.length < 21) {
+      if (!rawLm || rawLm.length < 21) {
         ctx.fillStyle = 'rgba(255,255,255,0.18)';
         ctx.fillText(label, zoneX + zoneW / 2, H - 4);
         ctx.restore();
         return;
       }
+
+      // Applique la rotation du poignet aux landmarks (espace local → monde)
+      // Les landmarks HTS sont en espace local du poignet — sans ça la main
+      // garde toujours la même forme quelle que soit l'orientation du poignet.
+      const lm = (wData && wData.length >= 7)
+        ? rawLm.map(p => rotVec(wData[3], wData[4], wData[5], wData[6], p[0], p[1], p[2]))
+        : rawLm;
+
       const xs = lm.map(p => p[0]);
       const ys = lm.map(p => p[1]);
       const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -964,26 +970,6 @@ function HandPreview({ frame }) {
         ctx.fill();
       }
 
-      // ── Indicateur de rotation du poignet ──────────────────────────────
-      if (wData && wData.length >= 7) {
-        const [,,, qx, qy, qz, qw] = wData;
-        const [wx, wy] = proj(lm[0]);
-        const L = 20;
-        ctx.lineCap = 'round';
-        // Axe Y local (vers les doigts) — blanc
-        const [yax, yay] = quatAxis2D(qx, qy, qz, qw, 1);
-        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + yax*L, wy + yay*L); ctx.stroke();
-        // Axe X local (travers de la main) — couleur doigt pouce
-        const [xax, xay] = quatAxis2D(qx, qy, qz, qw, 0);
-        ctx.strokeStyle = fingerColors[0].replace('0.9', '0.55');
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + xax*L, wy + xay*L); ctx.stroke();
-        ctx.lineCap = 'butt';
-      }
-
-      // Label
       ctx.fillStyle = labelColor;
       ctx.fillText(label, zoneX + zoneW / 2, H - 4);
       ctx.restore();
