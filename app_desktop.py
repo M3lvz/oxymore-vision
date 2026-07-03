@@ -603,6 +603,18 @@ def main():
             time.sleep(0.12)   # laisse move_window s'appliquer
             window.show()
             print("[boot] window.show() après resize+centrage JS", flush=True)
+
+            # Bug connu WebView2 : une fenêtre créée hidden=True puis resize()
+            # pendant qu'elle est cachée peut afficher une surface noire après
+            # show() (le swap-chain D3D n'est pas (re)peint). Un micro-resize
+            # juste après show() force WebView2 à re-render le contenu.
+            time.sleep(0.05)
+            try:
+                window.resize(WIN_W, WIN_H + 1)
+                time.sleep(0.03)
+                window.resize(WIN_W, WIN_H)
+            except Exception:
+                pass
         except Exception as _e:
             print(f"[boot] resize/show erreur : {_e}", flush=True)
             try: window.show()
@@ -781,6 +793,34 @@ class _WinAPI:
             return str(path)
         except Exception as e:
             print(f"[save_logs] erreur : {e}", flush=True)
+            return None
+
+    def save_bvh(self, content, default_name=None):
+        """
+        Affiche un dialog 'Enregistrer sous' natif (filtre .bvh) et écrit
+        `content` (texte BVH ASCII) dans le fichier choisi.
+        Retourne le chemin écrit, ou None si annulé / erreur.
+        """
+        if not self._w:
+            return None
+        try:
+            import webview
+            if not default_name:
+                default_name = "export.bvh"
+            result = self._w.create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=default_name,
+                file_types=('Fichiers BVH (*.bvh)', 'Tous les fichiers (*.*)'),
+            )
+            if not result:
+                return None
+            path = result[0] if isinstance(result, (list, tuple)) else result
+            with open(path, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(content if isinstance(content, str) else str(content))
+            print(f"[save_bvh] écrit dans {path}", flush=True)
+            return str(path)
+        except Exception as e:
+            print(f"[save_bvh] erreur : {e}", flush=True)
             return None
 
 

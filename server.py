@@ -65,7 +65,7 @@ else:
 
 UI_DIR      = BASE_DIR / "App"
 RUNNER_PATH    = BASE_DIR / "pose2sim_runner.py"
-BVH_SCRIPT_PATH = BASE_DIR / "pose2sim_to_bvh.py"
+BVH_SCRIPT_PATH = BASE_DIR / "osim_to_bvh.py"
 
 # ── Copie du runner hors de _MEIPASS ─────────────────────────────────────────
 # PROBLÈME : quand le subprocess venv Python exécute un script situé dans
@@ -85,7 +85,7 @@ if getattr(sys, 'frozen', False):
         _runner_copy = _tmp_runner_dir / "pose2sim_runner.py"
         _shutil.copy2(str(RUNNER_PATH), str(_runner_copy))
         RUNNER_PATH = _runner_copy
-        _bvh_copy = _tmp_runner_dir / "pose2sim_to_bvh.py"
+        _bvh_copy = _tmp_runner_dir / "osim_to_bvh.py"
         _shutil.copy2(str(BVH_SCRIPT_PATH), str(_bvh_copy))
         BVH_SCRIPT_PATH = _bvh_copy
     except Exception:
@@ -1304,40 +1304,47 @@ def _parse_trc(path, max_frames=300):
 # ─── Export BVH ───────────────────────────────────────────────────────────────
 @app.route("/api/export/bvh", methods=["POST"])
 def export_bvh():
-    """Convertit un fichier .trc en .bvh via pose2sim_to_bvh.py et retourne le fichier."""
+    """Convertit un résultat OpenSim (.osim + .mot) en .bvh via osim_to_bvh.py (FK exacte) et retourne le fichier."""
     import tempfile as _tmpmod, shutil as _sh
     from flask import Response
 
-    body          = request.get_json(silent=True) or {}
-    trc_path      = body.get("trc_path", "")
-    smooth        = max(1, int(body.get("smooth", 5)))
-    smooth_passes = max(1, int(body.get("smooth_passes", 1)))
-    scale         = float(body.get("scale", 100.0))
+    body        = request.get_json(silent=True) or {}
+    osim_path   = body.get("osim_path", "")
+    mot_path    = body.get("mot_path", "")
+    scale       = float(body.get("scale", 1.0))
+    despike_thr = float(body.get("despike_thr", 35.0))
+    despike_win = max(1, int(body.get("despike_win", 4)))
+    despike_gap = max(1, int(body.get("despike_gap", 30)))
+    apose_deg   = float(body.get("apose_deg", 0.0))
 
-    if not trc_path or not os.path.isfile(trc_path):
-        return jsonify({"error": "Fichier TRC introuvable"}), 400
+    if not osim_path or not os.path.isfile(osim_path) or not _is_safe_path(osim_path):
+        return jsonify({"error": "Fichier .osim introuvable ou non autorisé"}), 400
+    if not mot_path or not os.path.isfile(mot_path) or not _is_safe_path(mot_path):
+        return jsonify({"error": "Fichier .mot introuvable ou non autorisé"}), 400
 
     if not BVH_SCRIPT_PATH.exists():
-        return jsonify({"error": "Convertisseur BVH introuvable (pose2sim_to_bvh.py)"}), 500
+        return jsonify({"error": "Convertisseur BVH introuvable (osim_to_bvh.py)"}), 500
 
     python = get_venv_python()
     if not python or not os.path.exists(python):
         return jsonify({"error": "Python venv introuvable — complétez l'installation d'abord"}), 500
 
-    trc_stem = Path(trc_path).stem
+    mot_stem = Path(mot_path).stem
     tmp_dir  = Path(_tmpmod.mkdtemp(prefix="oxymore_bvh_"))
-    bvh_out  = tmp_dir / f"{trc_stem}.bvh"
+    bvh_out  = tmp_dir / f"{mot_stem}.bvh"
 
     try:
         cmd = [
             python, str(BVH_SCRIPT_PATH),
-            trc_path, str(bvh_out),
-            "--smooth",       str(smooth),
-            "--smooth-passes", str(smooth_passes),
+            osim_path, mot_path, str(bvh_out),
             "--scale",        str(scale),
+            "--despike-thr",  str(despike_thr),
+            "--despike-win",  str(despike_win),
+            "--despike-gap",  str(despike_gap),
+            "--apose-deg",    str(apose_deg),
         ]
         r = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=180,
+            cmd, capture_output=True, text=True, timeout=600,
             encoding="utf-8", errors="replace",
             env=_get_clean_env(),
         )
@@ -1352,10 +1359,10 @@ def export_bvh():
         return Response(
             bvh_text,
             mimetype="text/plain; charset=ascii",
-            headers={"Content-Disposition": f'attachment; filename="{trc_stem}.bvh"'},
+            headers={"Content-Disposition": f'attachment; filename="{mot_stem}.bvh"'},
         )
     except subprocess.TimeoutExpired:
-        return jsonify({"error": "Timeout dépassé (> 3 min) — fichier TRC trop long ?"}), 500
+        return jsonify({"error": "Timeout dépassé (> 10 min) — séquence trop longue ?"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:

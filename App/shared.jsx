@@ -318,40 +318,72 @@ function DecoRing({ size = 600, x = '50%', y = '50%', opacity = 0.6 }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// BvhExportModal — popup export TRC → BVH partagé
+// BvhExportModal — popup export OpenSim (.osim + .mot) → BVH partagé
+// Convertisseur FK exacte (osim_to_bvh.py) : pas de jitter, pas de
+// foot-sliding, despike des pops IK + A-pose optionnelle.
 // ─────────────────────────────────────────────────────────────
-function BvhExportModal({ open, onClose, trcFiles = [] }) {
-  const [selFile,      setSelFile]      = React.useState('');
-  const [smooth,       setSmooth]       = React.useState(5);
-  const [smoothPasses, setSmoothPasses] = React.useState(1);
-  const [exporting,    setExporting]    = React.useState(false);
-  const [error,        setError]        = React.useState('');
+function BvhExportModal({ open, onClose, projectPath }) {
+  const [loading,    setLoading]    = React.useState(false);
+  const [osimFiles,  setOsimFiles]  = React.useState([]);
+  const [motFiles,   setMotFiles]   = React.useState([]);
+  const [selOsim,    setSelOsim]    = React.useState('');
+  const [selMot,     setSelMot]     = React.useState('');
+  const [scale,      setScale]      = React.useState(1);
+  const [despikeThr, setDespikeThr] = React.useState(35);
+  const [despikeWin, setDespikeWin] = React.useState(4);
+  const [despikeGap, setDespikeGap] = React.useState(30);
+  const [aposeDeg,   setAposeDeg]   = React.useState(0);
+  const [exporting,  setExporting]  = React.useState(false);
+  const [error,      setError]      = React.useState('');
 
   React.useEffect(() => {
-    if (open) {
-      setSelFile(trcFiles[0]?.path || '');
-      setSmooth(5);
-      setSmoothPasses(1);
-      setError('');
-      setExporting(false);
-    }
-  }, [open]);
-
-  React.useEffect(() => {
-    if (trcFiles.length > 0 && !selFile) setSelFile(trcFiles[0].path);
-  }, [trcFiles]);
+    if (!open) return;
+    setError('');
+    setExporting(false);
+    setScale(1);
+    setDespikeThr(35);
+    setDespikeWin(4);
+    setDespikeGap(30);
+    setAposeDeg(0);
+    setOsimFiles([]);
+    setMotFiles([]);
+    setSelOsim('');
+    setSelMot('');
+    if (!projectPath) return;
+    setLoading(true);
+    fetch(`/api/files?path=${encodeURIComponent(projectPath + '\\kinematics')}`)
+      .then(r => r.json())
+      .then(d => {
+        const items = d.items || [];
+        const osims = items.filter(f => f.ext === '.osim');
+        const score = f => f.name.includes('LSTM') ? 0 : (f.name.includes('filt') ? 1 : 2);
+        const mots  = items.filter(f => f.ext === '.mot').sort((a, b) => score(a) - score(b));
+        setOsimFiles(osims);
+        setMotFiles(mots);
+        setSelOsim(osims[0]?.path || '');
+        setSelMot(mots[0]?.path || '');
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open, projectPath]);
 
   if (!open) return null;
 
+  const ready = !loading && selOsim && selMot;
+
   async function doExport() {
-    if (!selFile) return;
+    if (!ready) return;
     setExporting(true);
     setError('');
     try {
       const r = await fetch('/api/export/bvh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trc_path: selFile, smooth, smooth_passes: smoothPasses }),
+        body: JSON.stringify({
+          osim_path: selOsim, mot_path: selMot, scale,
+          despike_thr: despikeThr, despike_win: despikeWin, despike_gap: despikeGap,
+          apose_deg: aposeDeg,
+        }),
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
@@ -359,12 +391,12 @@ function BvhExportModal({ open, onClose, trcFiles = [] }) {
         return;
       }
       const text = await r.text();
-      const fname = selFile.split(/[/\\]/).pop().replace(/\.trc$/i, '.bvh');
+      const fname = selMot.split(/[/\\]/).pop().replace(/\.mot$/i, '.bvh');
 
-      // PyWebView desktop : dialog natif "Enregistrer sous"
-      if (window.pywebview?.api?.save_logs) {
+      // PyWebView desktop : dialog natif "Enregistrer sous" (filtre .bvh)
+      if (window.pywebview?.api?.save_bvh) {
         try {
-          const saved = await window.pywebview.api.save_logs(text, fname);
+          const saved = await window.pywebview.api.save_bvh(text, fname);
           if (saved) { onClose(); return; }
         } catch (_) {}
       }
@@ -416,7 +448,7 @@ function BvhExportModal({ open, onClose, trcFiles = [] }) {
             </div>
             <div>
               <div style={{fontSize:14, fontWeight:600, color:'var(--fg-0)'}}>Exporter en BVH</div>
-              <div style={{fontSize:11, color:'var(--fg-4)'}}>Biovision Hierarchy · Blender ready</div>
+              <div style={{fontSize:11, color:'var(--fg-4)'}}>FK exacte (OpenSim) · Blender ready</div>
             </div>
           </div>
           <button className="btn sm icon ghost" onClick={onClose} disabled={exporting}>
@@ -427,78 +459,153 @@ function BvhExportModal({ open, onClose, trcFiles = [] }) {
           </button>
         </div>
 
-        {/* Sélecteur TRC (si plusieurs) */}
-        {trcFiles.length > 1 && (
-          <div style={{marginBottom:20}}>
-            <label style={{fontSize:11, color:'var(--fg-3)', display:'block', marginBottom:6,
-                           textTransform:'uppercase', letterSpacing:'0.08em'}}>
-              Fichier source (.trc)
-            </label>
-            <select value={selFile} onChange={e => setSelFile(e.target.value)}
-                    style={{width:'100%', background:'rgba(255,255,255,0.04)',
-                            border:'1px solid var(--line)', borderRadius:8,
-                            color:'var(--fg-1)', padding:'8px 10px',
-                            fontFamily:'var(--font-mono)', fontSize:11, cursor:'pointer'}}>
-              {trcFiles.map(f => <option key={f.path} value={f.path}>{f.name}</option>)}
-            </select>
-          </div>
-        )}
-
-        {trcFiles.length === 1 && (
-          <div style={{marginBottom:20, padding:'8px 12px', borderRadius:8,
+        {/* Chargement */}
+        {loading && (
+          <div style={{marginBottom:20, padding:'12px 14px', borderRadius:8,
                        background:'rgba(255,255,255,0.03)', border:'1px solid var(--line)',
-                       fontSize:11, fontFamily:'var(--font-mono)', color:'var(--fg-2)'}}>
-            {trcFiles[0].name}
+                       fontSize:12, color:'var(--fg-3)', textAlign:'center'}}>
+            Analyse du dossier kinematics…
           </div>
         )}
 
-        {trcFiles.length === 0 && (
+        {/* Aucun résultat kinematics */}
+        {!loading && (osimFiles.length === 0 || motFiles.length === 0) && (
           <div style={{marginBottom:20, padding:'12px 14px', borderRadius:8,
                        background:'rgba(255,120,80,0.08)', border:'1px solid rgba(255,120,80,0.2)',
                        fontSize:12, color:'var(--warn)'}}>
-            Aucun fichier .trc trouvé — lancez le pipeline d'abord.
+            Aucun résultat .osim/.mot trouvé dans kinematics/ — lancez l'étape Kinematics d'abord.
           </div>
         )}
 
-        {/* Lissage */}
-        <div style={{marginBottom:18}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
-            <label style={{fontSize:11, color:'var(--fg-3)', textTransform:'uppercase',
-                           letterSpacing:'0.08em'}}>
-              Lissage temporel
-            </label>
-            <span style={{fontFamily:'var(--font-mono)', fontSize:13, color:'var(--fg-0)'}}>
-              {smooth <= 1 ? 'Désactivé' : `Fenêtre ${smooth}`}
-            </span>
-          </div>
-          <input type="range" min={1} max={21} step={2} value={smooth}
-                 onChange={e => setSmooth(Number(e.target.value))}
-                 style={{width:'100%', accentColor:'#7eb8f7'}}/>
-          <div style={{display:'flex', justifyContent:'space-between', fontSize:9,
-                       color:'var(--fg-4)', marginTop:4, fontFamily:'var(--font-mono)'}}>
-            <span>Brut</span><span>Léger</span><span>Moyen</span><span>Fort</span>
-          </div>
-        </div>
+        {!loading && osimFiles.length > 0 && motFiles.length > 0 && (
+          <>
+            {/* Sélecteur modèle .osim */}
+            {osimFiles.length > 1 ? (
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:11, color:'var(--fg-3)', display:'block', marginBottom:6,
+                               textTransform:'uppercase', letterSpacing:'0.08em'}}>
+                  Modèle (.osim)
+                </label>
+                <select value={selOsim} onChange={e => setSelOsim(e.target.value)}
+                        style={{width:'100%', background:'rgba(255,255,255,0.04)',
+                                border:'1px solid var(--line)', borderRadius:8,
+                                color:'var(--fg-1)', padding:'8px 10px',
+                                fontFamily:'var(--font-mono)', fontSize:11, cursor:'pointer'}}>
+                  {osimFiles.map(f => <option key={f.path} value={f.path}>{f.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div style={{marginBottom:14, padding:'8px 12px', borderRadius:8,
+                           background:'rgba(255,255,255,0.03)', border:'1px solid var(--line)',
+                           fontSize:11, fontFamily:'var(--font-mono)', color:'var(--fg-2)'}}>
+                {osimFiles[0].name}
+              </div>
+            )}
 
-        {/* Passes */}
-        <div style={{marginBottom:24}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
-            <label style={{fontSize:11, color:'var(--fg-3)', textTransform:'uppercase',
-                           letterSpacing:'0.08em'}}>
-              Passes de lissage
-            </label>
-            <span style={{fontFamily:'var(--font-mono)', fontSize:13, color:'var(--fg-0)'}}>
-              {smoothPasses}
-            </span>
-          </div>
-          <input type="range" min={1} max={5} step={1} value={smoothPasses}
-                 onChange={e => setSmoothPasses(Number(e.target.value))}
-                 style={{width:'100%', accentColor:'#7eb8f7'}}/>
-          <div style={{display:'flex', justifyContent:'space-between', fontSize:9,
-                       color:'var(--fg-4)', marginTop:4, fontFamily:'var(--font-mono)'}}>
-            {[1,2,3,4,5].map(n => <span key={n}>{n}</span>)}
-          </div>
-        </div>
+            {/* Sélecteur mouvement .mot */}
+            {motFiles.length > 1 ? (
+              <div style={{marginBottom:20}}>
+                <label style={{fontSize:11, color:'var(--fg-3)', display:'block', marginBottom:6,
+                               textTransform:'uppercase', letterSpacing:'0.08em'}}>
+                  Mouvement (.mot)
+                </label>
+                <select value={selMot} onChange={e => setSelMot(e.target.value)}
+                        style={{width:'100%', background:'rgba(255,255,255,0.04)',
+                                border:'1px solid var(--line)', borderRadius:8,
+                                color:'var(--fg-1)', padding:'8px 10px',
+                                fontFamily:'var(--font-mono)', fontSize:11, cursor:'pointer'}}>
+                  {motFiles.map(f => <option key={f.path} value={f.path}>{f.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div style={{marginBottom:20, padding:'8px 12px', borderRadius:8,
+                           background:'rgba(255,255,255,0.03)', border:'1px solid var(--line)',
+                           fontSize:11, fontFamily:'var(--font-mono)', color:'var(--fg-2)'}}>
+                {motFiles[0].name}
+              </div>
+            )}
+
+            {/* Échelle */}
+            <div style={{marginBottom:18, display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+              <label style={{fontSize:11, color:'var(--fg-3)', textTransform:'uppercase', letterSpacing:'0.08em'}}>
+                Échelle
+              </label>
+              <Segmented value={scale} onChange={setScale}
+                         options={[{value:1, label:'Mètres'}, {value:100, label:'Centimètres'}]}/>
+            </div>
+
+            {/* Despike — correction des pops IK */}
+            <div style={{marginBottom:18}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
+                <label style={{fontSize:11, color:'var(--fg-3)', textTransform:'uppercase',
+                               letterSpacing:'0.08em'}}>
+                  Correction des pops IK
+                </label>
+                <span style={{fontFamily:'var(--font-mono)', fontSize:13, color:'var(--fg-0)'}}>
+                  {despikeThr <= 0 ? 'Désactivée' : `${despikeThr}°/frame`}
+                </span>
+              </div>
+              <input type="range" min={0} max={90} step={5} value={despikeThr}
+                     onChange={e => setDespikeThr(Number(e.target.value))}
+                     style={{width:'100%', accentColor:'#7eb8f7'}}/>
+              <div style={{fontSize:10, color:'var(--fg-4)', marginTop:6, lineHeight:1.5}}>
+                Lisse les sauts de coordonnées isolés (artefacts IK), sans toucher aux mouvements rapides volontaires.
+              </div>
+            </div>
+
+            {despikeThr > 0 && (
+              <div style={{marginBottom:18, display:'grid', gridTemplateColumns:'1fr 1fr', gap:14}}>
+                <div>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
+                    <label style={{fontSize:11, color:'var(--fg-3)', textTransform:'uppercase',
+                                   letterSpacing:'0.08em'}}>
+                      Lissage
+                    </label>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize:13, color:'var(--fg-0)'}}>
+                      ±{despikeWin}
+                    </span>
+                  </div>
+                  <input type="range" min={1} max={10} step={1} value={despikeWin}
+                         onChange={e => setDespikeWin(Number(e.target.value))}
+                         style={{width:'100%', accentColor:'#7eb8f7'}}/>
+                </div>
+                <div>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
+                    <label style={{fontSize:11, color:'var(--fg-3)', textTransform:'uppercase',
+                                   letterSpacing:'0.08em'}}>
+                      Pontage
+                    </label>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize:13, color:'var(--fg-0)'}}>
+                      {despikeGap}f
+                    </span>
+                  </div>
+                  <input type="range" min={5} max={100} step={5} value={despikeGap}
+                         onChange={e => setDespikeGap(Number(e.target.value))}
+                         style={{width:'100%', accentColor:'#7eb8f7'}}/>
+                </div>
+              </div>
+            )}
+
+            {/* Pose de repos des bras (T-pose / A-pose) */}
+            <div style={{marginBottom:24}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
+                <label style={{fontSize:11, color:'var(--fg-3)', textTransform:'uppercase',
+                               letterSpacing:'0.08em'}}>
+                  Pose de repos des bras
+                </label>
+                <span style={{fontFamily:'var(--font-mono)', fontSize:13, color:'var(--fg-0)'}}>
+                  {aposeDeg <= 0 ? 'T-pose' : `A-pose ${aposeDeg}°`}
+                </span>
+              </div>
+              <input type="range" min={0} max={45} step={5} value={aposeDeg}
+                     onChange={e => setAposeDeg(Number(e.target.value))}
+                     style={{width:'100%', accentColor:'#7eb8f7'}}/>
+              <div style={{fontSize:10, color:'var(--fg-4)', marginTop:6, lineHeight:1.5}}>
+                Incline les bras vers le bas dans la pose de repos — utile pour matcher un personnage cible en A-pose (retarget Auto-Rig Pro).
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Erreur */}
         {error && (
@@ -516,11 +623,11 @@ function BvhExportModal({ open, onClose, trcFiles = [] }) {
             Annuler
           </button>
           <button className="btn" onClick={doExport}
-                  disabled={!selFile || trcFiles.length === 0 || exporting}
+                  disabled={!ready || exporting}
                   style={{
                     background:'rgba(126,184,247,0.12)',
                     borderColor:'#7eb8f7', color:'#7eb8f7',
-                    opacity: (!selFile || trcFiles.length === 0) ? 0.4 : 1,
+                    opacity: !ready ? 0.4 : 1,
                   }}>
             {Icon.download}
             <span>{exporting ? 'Conversion en cours…' : 'Télécharger .bvh'}</span>

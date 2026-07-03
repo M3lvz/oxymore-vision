@@ -258,7 +258,7 @@ function Results({ project }) {
         </div>
         <div className="head-actions">
           <button className="btn"
-                  disabled={!projPath || files.trc.length === 0}
+                  disabled={!projPath || files.osim.length === 0 || files.mot.length === 0}
                   onClick={() => setBvhOpen(true)}
                   style={{background:'rgba(126,184,247,0.1)',
                           borderColor:'#7eb8f7', color:'#7eb8f7'}}>
@@ -293,12 +293,12 @@ function Results({ project }) {
 
             {/* Description */}
             <div style={{fontSize:11, color:'var(--fg-4)', lineHeight:1.55, marginBottom:14}}>
-              Convertit le .trc en Biovision Hierarchy importable dans Blender ou tout moteur 3D.
+              Convertit le résultat OpenSim (.osim + .mot) en Biovision Hierarchy par cinématique directe — sans jitter ni glissement des pieds.
             </div>
 
             {/* Badges */}
             <div style={{display:'flex', gap:5, flexWrap:'wrap', marginBottom:16}}>
-              {['Y-up', 'ZXY Euler', 'Blender'].map(t => (
+              {['Y-up', 'FK exacte', 'Blender'].map(t => (
                 <span key={t} style={{
                   fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px',
                   borderRadius:999, background:'rgba(126,184,247,0.08)',
@@ -311,7 +311,7 @@ function Results({ project }) {
             {/* Bouton principal */}
             <button
               className="btn"
-              disabled={!projPath || files.trc.length === 0}
+              disabled={!projPath || files.osim.length === 0 || files.mot.length === 0}
               onClick={() => setBvhOpen(true)}
               style={{
                 width:'100%', justifyContent:'center',
@@ -322,10 +322,10 @@ function Results({ project }) {
               <span>Exporter en BVH</span>
             </button>
 
-            {projPath && files.trc.length === 0 && (
+            {projPath && (files.osim.length === 0 || files.mot.length === 0) && (
               <div style={{fontSize:10, color:'var(--fg-4)', textAlign:'center', marginTop:8,
                            lineHeight:1.4}}>
-                Aucun .trc · lancez<br/>le pipeline d'abord
+                Aucun .osim/.mot · lancez<br/>le pipeline (kinematics) d'abord
               </div>
             )}
             {!projPath && (
@@ -385,7 +385,7 @@ function Results({ project }) {
       <BvhExportModal
         open={bvhOpen}
         onClose={() => setBvhOpen(false)}
-        trcFiles={files.trc}
+        projectPath={projPath}
       />
     </>
   );

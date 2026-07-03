@@ -34,7 +34,7 @@ a = Analysis(
         (str(ROOT / 'license_manager.py'),   '.'),
         (str(ROOT / 'setup_manager.py'),     '.'),
         (str(ROOT / 'pose2sim_runner.py'),   '.'),
-        (str(ROOT / 'pose2sim_to_bvh.py'),   '.'),
+        (str(ROOT / 'osim_to_bvh.py'),       '.'),
         (str(ROOT / 'Config_template.toml'), '.'),
         *_datas,
     ],

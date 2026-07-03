@@ -539,7 +539,7 @@ function Viewer3D({ project }) {
       <BvhExportModal
         open={bvhOpen}
         onClose={() => setBvhOpen(false)}
-        trcFiles={trcFiles}
+        projectPath={project?.path || ''}
       />
     </>
   );
