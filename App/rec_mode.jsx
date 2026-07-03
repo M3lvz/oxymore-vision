@@ -858,6 +858,8 @@ const FINGER_COLORS_BLUE = [
 
 function HandPreview({ frame }) {
   const canvasRef = useRefREC(null);
+  const lastLRef  = useRefREC(null);
+  const lastRRef  = useRefREC(null);
 
   useEffectREC(() => {
     const canvas = canvasRef.current;
@@ -866,15 +868,25 @@ function HandPreview({ frame }) {
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const lmR = frame.right?.landmarks;
-    const lmL = frame.left?.landmarks;
-    if (!lmR && !lmL) return;
+    const lmR = frame?.right?.landmarks || null;
+    const lmL = frame?.left?.landmarks  || null;
+
+    // Mémorise la dernière position connue → pas de clignotement en cas de perte
+    if (lmL) lastLRef.current = lmL;
+    if (lmR) lastRRef.current = lmR;
+
+    const drawL = lmL || lastLRef.current;
+    const drawR = lmR || lastRRef.current;
+    const staleL = !lmL && !!drawL;
+    const staleR = !lmR && !!drawR;
+
+    if (!drawL && !drawR) return;
 
     const pad = 8;
     const labelH = 14;
     const half = W / 2;
 
-    // Séparateur pointillé au centre
+    // Séparateur pointillé
     ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
@@ -882,15 +894,16 @@ function HandPreview({ frame }) {
     ctx.beginPath(); ctx.moveTo(half, pad); ctx.lineTo(half, H - labelH - 2); ctx.stroke();
     ctx.restore();
 
-    // Dessine une main dans sa zone (zoneX .. zoneX+zoneW)
-    // mirrorX : inverse l'axe X dans la zone → vue du porteur du casque
-    function drawInZone(lm, fingerColors, zoneX, zoneW, label, labelColor, mirrorX) {
+    function drawInZone(lm, fingerColors, zoneX, zoneW, label, labelColor, stale) {
+      ctx.save();
+      if (stale) ctx.globalAlpha = 0.3;
+
       ctx.font = 'bold 9px monospace';
       ctx.textAlign = 'center';
       if (!lm || lm.length < 21) {
         ctx.fillStyle = 'rgba(255,255,255,0.18)';
         ctx.fillText(label, zoneX + zoneW / 2, H - 4);
-        ctx.textAlign = 'left';
+        ctx.restore();
         return;
       }
       const xs = lm.map(p => p[0]);
@@ -905,12 +918,13 @@ function HandPreview({ frame }) {
       const ox = zoneX + (zoneW - rX * scale) / 2;
       const oy = pad + (drawH - rY * scale) / 2;
 
+      // Sans miroir : les coordonnées Unity placent naturellement le pouce
+      // à l'intérieur (vers le centre) pour chaque main
       function proj(p) {
-        const rawX = ox + (p[0] - minX) * scale;
-        // Vue du user : on inverse X dans la zone
-        const x = mirrorX ? (2 * zoneX + zoneW - rawX) : rawX;
-        const y = oy + (maxY - p[1]) * scale;
-        return [x, y];
+        return [
+          ox + (p[0] - minX) * scale,
+          oy + (maxY - p[1]) * scale,
+        ];
       }
 
       // Paume
@@ -945,12 +959,11 @@ function HandPreview({ frame }) {
       // Label
       ctx.fillStyle = labelColor;
       ctx.fillText(label, zoneX + zoneW / 2, H - 4);
-      ctx.textAlign = 'left';
+      ctx.restore();
     }
 
-    // Main gauche (G) à gauche, main droite (D) à droite — vue du porteur du casque
-    drawInZone(lmL, FINGER_COLORS_BLUE, 0,    half, 'G', 'rgba(129,140,248,0.9)', true);
-    drawInZone(lmR, FINGER_COLORS_TEAL, half, half, 'D', 'rgba(45,212,191,0.9)',  true);
+    drawInZone(drawL, FINGER_COLORS_BLUE, 0,    half, 'G', 'rgba(129,140,248,0.9)', staleL);
+    drawInZone(drawR, FINGER_COLORS_TEAL, half, half, 'D', 'rgba(45,212,191,0.9)',  staleR);
 
   }, [frame]);
 
