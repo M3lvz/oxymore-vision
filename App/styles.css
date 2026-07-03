@@ -2095,7 +2095,9 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--font-mono); fo
 
 .hand-preview-canvas {
   border: 1px solid var(--line); border-radius: 8px;
-  background: rgba(0,0,0,0.3);
+  background: rgba(0,0,0,0.4);
+  flex-shrink: 0;
+  max-width: 100%;
 }
 
 /* ── Files received list ──────────────────────────────────── */

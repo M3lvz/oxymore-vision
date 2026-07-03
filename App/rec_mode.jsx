@@ -827,15 +827,33 @@ function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hand Preview — canvas 2D 21-joint visualization
+// Hand Preview — canvas 2D redesigné
 // ─────────────────────────────────────────────────────────────────────────────
 const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],       // Thumb
-  [0,5],[5,6],[6,7],[7,8],       // Index
-  [0,9],[9,10],[10,11],[11,12],  // Middle
-  [0,13],[13,14],[14,15],[15,16],// Ring
-  [0,17],[17,18],[18,19],[19,20],// Little
-  [5,9],[9,13],[13,17],          // Palm
+  // Doigts
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  // Paume
+  [5,9],[9,13],[13,17],[0,17],
+];
+
+// Couleurs par doigt pour rendre la lecture plus facile
+const FINGER_COLORS_TEAL = [
+  'rgba(45,212,191,0.9)',   // Pouce
+  'rgba(99,240,210,0.9)',   // Index
+  'rgba(45,212,191,0.9)',   // Majeur
+  'rgba(30,180,160,0.9)',   // Annulaire
+  'rgba(20,150,130,0.9)',   // Auriculaire
+];
+const FINGER_COLORS_BLUE = [
+  'rgba(129,140,248,0.9)',
+  'rgba(165,180,252,0.9)',
+  'rgba(129,140,248,0.9)',
+  'rgba(99,102,241,0.9)',
+  'rgba(79,70,229,0.9)',
 ];
 
 function HandPreview({ frame }) {
@@ -848,51 +866,83 @@ function HandPreview({ frame }) {
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    function drawHand(lm, color) {
+    const lmR = frame.right?.landmarks;
+    const lmL = frame.left?.landmarks;
+
+    // Collecte tous les points pour normalisation globale
+    const allPts = [...(lmR || []), ...(lmL || [])];
+    if (allPts.length === 0) return;
+
+    // Projection front-view : X horizontal, Y vertical (inversé car canvas Y↓)
+    const pad = 14;
+    const xs = allPts.map(p => p[0]);
+    const ys = allPts.map(p => p[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const rX = maxX - minX || 0.001;
+    const rY = maxY - minY || 0.001;
+    const scale = Math.min((W - pad*2) / rX, (H - pad*2) / rY) * 0.88;
+    const cx = (W - rX * scale) / 2;
+    const cy = (H - rY * scale) / 2;
+
+    function proj(p) {
+      return [
+        cx + (p[0] - minX) * scale,
+        cy + (maxY - p[1]) * scale,   // flip Y : doigts vers le haut
+      ];
+    }
+
+    function drawHand(lm, fingerColors, baseAlpha) {
       if (!lm || lm.length < 21) return;
-      // Projection X/Y : Y est la hauteur (doigt vers le haut), X est latéral
-      const xs = lm.map(p => p[0]);
-      const ys = lm.map(p => p[1]);
-      const minX = Math.min(...xs), maxX = Math.max(...xs);
-      const minY = Math.min(...ys), maxY = Math.max(...ys);
-      const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
-      const scale = Math.min((W/2 - 10) / rangeX, (H - 20) / rangeY) * 0.85;
-      const offX = (W/2 - rangeX * scale) / 2 + (color === 'teal' ? W/2 : 0);
-      const offY = 10 + (H - 20 - rangeY * scale) / 2;
 
-      function proj(p) {
-        return [
-          offX + (p[0] - minX) * scale,
-          offY + (maxY - p[2]) * scale,  // flip Y
-        ];
-      }
-
-      // Connections
-      ctx.strokeStyle = color === 'teal' ? 'rgba(45,212,191,0.7)' : 'rgba(99,179,237,0.7)';
+      // Paume (gris)
+      ctx.strokeStyle = `rgba(255,255,255,${baseAlpha * 0.25})`;
       ctx.lineWidth = 1.5;
-      for (const [a, b] of HAND_CONNECTIONS) {
-        const [ax, ay] = proj(lm[a]), [bx, by] = proj(lm[b]);
-        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      for (const [a, b] of [[5,9],[9,13],[13,17],[0,17],[0,5]]) {
+        const [ax,ay] = proj(lm[a]), [bx,by] = proj(lm[b]);
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
       }
+
+      // Doigts colorés
+      const fingers = [[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+      fingers.forEach((chain, fi) => {
+        ctx.strokeStyle = fingerColors[fi];
+        ctx.lineWidth = 2;
+        for (const [a,b] of [[0,chain[0]], [chain[0],chain[1]], [chain[1],chain[2]], [chain[2],chain[3]]]) {
+          const [ax,ay] = proj(lm[a]), [bx,by] = proj(lm[b]);
+          ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+        }
+      });
+
       // Joints
-      ctx.fillStyle = color === 'teal' ? 'rgba(45,212,191,1)' : 'rgba(99,179,237,1)';
       for (let i = 0; i < 21; i++) {
-        const [px, py] = proj(lm[i]);
+        const [px,py] = proj(lm[i]);
+        const fi = i === 0 ? -1 : Math.floor((i-1)/4);
+        ctx.fillStyle = i === 0
+          ? `rgba(255,255,255,${baseAlpha * 0.9})`
+          : fingerColors[fi] || fingerColors[0];
         ctx.beginPath();
-        ctx.arc(px, py, i === 0 ? 3 : 2, 0, Math.PI * 2);
+        ctx.arc(px, py, i === 0 ? 4 : (i % 4 === 0 ? 2.5 : 2), 0, Math.PI*2);
         ctx.fill();
       }
     }
 
-    drawHand(frame.left?.landmarks,  'blue');
-    drawHand(frame.right?.landmarks, 'teal');
+    drawHand(lmL, FINGER_COLORS_BLUE, 1);
+    drawHand(lmR, FINGER_COLORS_TEAL, 1);
+
+    // Labels
+    ctx.font = '9px monospace';
+    ctx.fillStyle = 'rgba(129,140,248,0.8)';
+    if (lmL) ctx.fillText('G', proj(lmL[0])[0] - 12, proj(lmL[0])[1] + 4);
+    ctx.fillStyle = 'rgba(45,212,191,0.8)';
+    if (lmR) ctx.fillText('D', proj(lmR[0])[0] + 6, proj(lmR[0])[1] + 4);
 
   }, [frame]);
 
   return (
     <canvas
       ref={canvasRef}
-      width={220} height={120}
+      width={300} height={180}
       className="hand-preview-canvas"
     />
   );
