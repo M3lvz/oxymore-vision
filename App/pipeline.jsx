@@ -11,14 +11,25 @@ const STEPS = [
   { id: 'filtering',         label: 'Filtrage',             desc: 'Lissage des trajectoires 3D (Butterworth, Kalman…)',         icon: Icon.filter,   eta: '~25s' },
   { id: 'markerAugmentation',label: 'Marker Augmentation',  desc: 'Estimation de marqueurs virtuels (optionnel)',               icon: Icon.sparkle,  eta: '~50s' },
   { id: 'kinematics',        label: 'Cinématique',          desc: 'Calcul des angles articulaires via OpenSim',                 icon: Icon.bone,     eta: '~2m' },
+  { id: 'handFusion',        label: 'Fusion doigts',        desc: 'Fusionne le hand tracking Quest avec la cinématique corps → BVH avec doigts', icon: Icon.hand, eta: '~30s', defaultEnabled: false, optional: true },
 ];
 
 function Pipeline({ runState, dispatchRun, project, licenseValid }) {
   const { enabled, current, statuses, progress, startedAt } = runState;
   const running = current != null;
+  const [handAvailable, setHandAvailable] = useStateP(false);
+
+  useEffectP(() => {
+    if (!project?.path) return;
+    fetch(`/api/rec/hand/check?project=${encodeURIComponent(project.path)}`)
+      .then(r => r.json())
+      .then(d => setHandAvailable(!!d.exists))
+      .catch(() => {});
+  }, [project?.path]);
 
   function toggle(id) {
     if (running) return;
+    if (id === 'handFusion' && !handAvailable) return;
     dispatchRun({ type: 'TOGGLE_STEP', id });
   }
 
@@ -137,18 +148,21 @@ function Pipeline({ runState, dispatchRun, project, licenseValid }) {
         {/* Steps */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {STEPS.map((s, i) => {
+            const isHandFusion = s.id === 'handFusion';
+            const locked = isHandFusion && !handAvailable;
             const status = statuses[s.id] || (enabled[i] ? 'idle' : 'skipped');
             const stepProgress = progress[s.id] || 0;
             const isRunning = current === i;
             return (
               <div
                 key={s.id}
-                className={`step ${status === 'done' ? 'done' : ''} ${isRunning ? 'running' : ''} ${status === 'error' ? 'error' : ''}`}
+                className={`step ${status === 'done' ? 'done' : ''} ${isRunning ? 'running' : ''} ${status === 'error' ? 'error' : ''} ${locked ? 'locked' : ''}`}
               >
                 {/* num/step indicator */}
                 <div className="badge-num">
                   {isRunning ? <div className="spinner"/> :
                    status === 'done' ? <span style={{ color: 'var(--success)' }}>{Icon.check}</span> :
+                   locked ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ width:13, height:13 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> :
                    String(i + 1).padStart(2, '0')}
                 </div>
 
@@ -158,15 +172,29 @@ function Pipeline({ runState, dispatchRun, project, licenseValid }) {
                   background: 'rgba(255,255,255,0.04)',
                   border: '1px solid var(--line-2)',
                   display: 'grid', placeItems: 'center',
-                  color: status === 'done' ? 'var(--fg-1)' : 'var(--fg-2)',
+                  color: locked ? 'var(--fg-4)' : status === 'done' ? 'var(--fg-1)' : 'var(--fg-2)',
                   flex: '0 0 36px',
+                  opacity: locked ? 0.5 : 1,
                 }}>
                   <div style={{ width: 18, height: 18 }}>{s.icon}</div>
                 </div>
 
                 {/* info */}
-                <div className="info">
-                  <div className="name">{s.label}</div>
+                <div className="info" style={{ opacity: locked ? 0.5 : 1 }}>
+                  <div className="name" style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    {s.label}
+                    {isHandFusion && (
+                      <span style={{
+                        fontSize:9.5, padding:'1px 6px', borderRadius:10,
+                        background: handAvailable ? 'rgba(45,212,191,0.12)' : 'rgba(255,255,255,0.06)',
+                        color: handAvailable ? 'rgba(45,212,191,0.9)' : 'var(--fg-4)',
+                        border: `1px solid ${handAvailable ? 'rgba(45,212,191,0.3)' : 'var(--line)'}`,
+                        fontWeight:500,
+                      }}>
+                        {handAvailable ? 'Quest détecté' : 'Requiert hand_tracking.json'}
+                      </span>
+                    )}
+                  </div>
                   <div className="desc">{s.desc}</div>
                   {(isRunning || status === 'done') && (
                     <div className="meta">
@@ -180,12 +208,12 @@ function Pipeline({ runState, dispatchRun, project, licenseValid }) {
 
                 {/* toggle enable */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <Toggle on={enabled[i]} onClick={() => toggle(s.id)}/>
+                  <Toggle on={enabled[i] && !locked} onClick={() => toggle(s.id)}
+                    style={{ opacity: locked ? 0.4 : 1, pointerEvents: locked ? 'none' : 'auto' }}/>
                   <button
                     className="btn sm icon"
-                    title="Exécuter cette étape uniquement"
-                    disabled={running || !enabled[i] || licenseValid === false}
-                    title={licenseValid === false ? 'Licence requise' : 'Exécuter cette étape uniquement'}
+                    title={locked ? 'Lance d\'abord un REK avec Hand Tracking' : licenseValid === false ? 'Licence requise' : 'Exécuter cette étape uniquement'}
+                    disabled={running || !enabled[i] || licenseValid === false || locked}
                     onClick={() => dispatchRun({ type: 'RUN_ONE', id: s.id })}
                   >
                     {Icon.play}

@@ -83,6 +83,11 @@ const Icon = {
       <path d="M6 4a2 2 0 0 0-2 2 2 2 0 0 0 2 2 2 2 0 0 0-1 1.7c0 .8.5 1.5 1.3 1.8L10 14l4 4 2 2c.3.8 1 1.3 1.8 1.3a2 2 0 0 0 1.7-1A2 2 0 0 0 22 18a2 2 0 0 0-2-2 2 2 0 0 0 1-1.7c0-.8-.5-1.5-1.3-1.8L14 10 10 6 8 4c-.3-.8-1-1.3-1.8-1.3"/>
     </svg>
   ),
+  hand: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 11V8a2 2 0 0 0-4 0v3M14 8V6a2 2 0 0 0-4 0v4M10 6a2 2 0 0 0-4 0v8l-1-1a2 2 0 0 0-2 3l4 4a6 6 0 0 0 6 0 6 6 0 0 0 2-4v-6a2 2 0 0 0-4 0"/>
+    </svg>
+  ),
   // misc
   folder: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -323,6 +328,7 @@ function DecoRing({ size = 600, x = '50%', y = '50%', opacity = 0.6 }) {
 // foot-sliding, despike des pops IK + A-pose optionnelle.
 // ─────────────────────────────────────────────────────────────
 function BvhExportModal({ open, onClose, projectPath }) {
+  const [format,     setFormat]     = React.useState('bvh');
   const [loading,    setLoading]    = React.useState(false);
   const [osimFiles,  setOsimFiles]  = React.useState([]);
   const [motFiles,   setMotFiles]   = React.useState([]);
@@ -340,6 +346,7 @@ function BvhExportModal({ open, onClose, projectPath }) {
     if (!open) return;
     setError('');
     setExporting(false);
+    setFormat('bvh');
     setScale(1);
     setDespikeThr(35);
     setDespikeWin(4);
@@ -371,45 +378,58 @@ function BvhExportModal({ open, onClose, projectPath }) {
 
   const ready = !loading && selOsim && selMot;
 
+  const payload = {
+    osim_path: selOsim, mot_path: selMot, scale,
+    despike_thr: despikeThr, despike_win: despikeWin, despike_gap: despikeGap,
+    apose_deg: aposeDeg,
+  };
+
   async function doExport() {
     if (!ready) return;
     setExporting(true);
     setError('');
     try {
-      const r = await fetch('/api/export/bvh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          osim_path: selOsim, mot_path: selMot, scale,
-          despike_thr: despikeThr, despike_win: despikeWin, despike_gap: despikeGap,
-          apose_deg: aposeDeg,
-        }),
-      });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        setError(d.error || `Erreur HTTP ${r.status}`);
-        return;
-      }
-      const text = await r.text();
-      const fname = selMot.split(/[/\\]/).pop().replace(/\.mot$/i, '.bvh');
+      if (format === 'bvh') {
+        const r = await fetch('/api/export/bvh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); setError(d.error || `Erreur HTTP ${r.status}`); return; }
+        const text  = await r.text();
+        const fname = selMot.split(/[/\\]/).pop().replace(/\.mot$/i, '.bvh');
+        if (window.pywebview?.api?.save_bvh) {
+          try { const saved = await window.pywebview.api.save_bvh(text, fname); if (saved) { onClose(); return; } } catch (_) {}
+        }
+        const blob = new Blob([text], { type: 'application/octet-stream' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = fname;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        onClose();
 
-      // PyWebView desktop : dialog natif "Enregistrer sous" (filtre .bvh)
-      if (window.pywebview?.api?.save_bvh) {
-        try {
-          const saved = await window.pywebview.api.save_bvh(text, fname);
-          if (saved) { onClose(); return; }
-        } catch (_) {}
+      } else {
+        const r = await fetch('/api/export/fbx', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); setError(d.error || `Erreur HTTP ${r.status}`); return; }
+        const { data, filename } = await r.json();
+        const fname = filename || selMot.split(/[/\\]/).pop().replace(/\.mot$/i, '.fbx');
+        if (window.pywebview?.api?.save_fbx) {
+          try { const saved = await window.pywebview.api.save_fbx(data, fname); if (saved) { onClose(); return; } } catch (_) {}
+        }
+        const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+        const blob  = new Blob([bytes], { type: 'application/octet-stream' });
+        const url   = URL.createObjectURL(blob);
+        const a     = document.createElement('a');
+        a.href = url; a.download = fname;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        onClose();
       }
-
-      // Fallback navigateur : Blob download
-      const blob = new Blob([text], { type: 'application/octet-stream' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = fname;
-      document.body.appendChild(a); a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      onClose();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -437,7 +457,7 @@ function BvhExportModal({ open, onClose, projectPath }) {
       }}>
 
         {/* Header */}
-        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24}}>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20}}>
           <div style={{display:'flex', alignItems:'center', gap:12}}>
             <div style={{
               width:38, height:38, borderRadius:10,
@@ -447,8 +467,8 @@ function BvhExportModal({ open, onClose, projectPath }) {
               {IcoBvh}
             </div>
             <div>
-              <div style={{fontSize:14, fontWeight:600, color:'var(--fg-0)'}}>Exporter en BVH</div>
-              <div style={{fontSize:11, color:'var(--fg-4)'}}>FK exacte (OpenSim) · Blender ready</div>
+              <div style={{fontSize:14, fontWeight:600, color:'var(--fg-0)'}}>Exporter l'animation</div>
+              <div style={{fontSize:11, color:'var(--fg-4)'}}>FK exacte (OpenSim) · sans jitter · sans foot-sliding</div>
             </div>
           </div>
           <button className="btn sm icon ghost" onClick={onClose} disabled={exporting}>
@@ -458,6 +478,38 @@ function BvhExportModal({ open, onClose, projectPath }) {
             </svg>
           </button>
         </div>
+
+        {/* Toggle format BVH / FBX */}
+        <div style={{display:'flex', gap:6, marginBottom:20, padding:'4px', borderRadius:10,
+                     background:'rgba(255,255,255,0.04)', border:'1px solid var(--line)'}}>
+          {[
+            { id:'bvh', label:'BVH', hint:'Blender · Auto-Rig Pro · iClone' },
+            { id:'fbx', label:'FBX', hint:'Unity · Unreal · Maya · 3ds Max' },
+          ].map(({id, label, hint}) => (
+            <button key={id} onClick={() => { setFormat(id); setError(''); }}
+                    disabled={exporting}
+                    title={hint}
+                    style={{
+                      flex:1, padding:'7px 0', border:'none', borderRadius:7, cursor:'pointer',
+                      fontSize:12, fontWeight:600, letterSpacing:'0.04em', transition:'all 0.15s',
+                      background: format === id ? 'rgba(126,184,247,0.15)' : 'transparent',
+                      color:      format === id ? '#7eb8f7' : 'var(--fg-3)',
+                      boxShadow:  format === id ? 'inset 0 0 0 1px rgba(126,184,247,0.35)' : 'none',
+                    }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Note FBX */}
+        {format === 'fbx' && (
+          <div style={{marginBottom:18, padding:'9px 12px', borderRadius:8,
+                       background:'rgba(126,184,247,0.06)', border:'1px solid rgba(126,184,247,0.18)',
+                       fontSize:11, color:'var(--fg-3)', lineHeight:1.6}}>
+            Requiert <strong style={{color:'var(--fg-1)'}}>Blender</strong> installé sur ce PC.
+            La conversion prend ~10–20 sec (Blender tourne en arrière-plan).
+          </div>
+        )}
 
         {/* Chargement */}
         {loading && (
@@ -630,7 +682,10 @@ function BvhExportModal({ open, onClose, projectPath }) {
                     opacity: !ready ? 0.4 : 1,
                   }}>
             {Icon.download}
-            <span>{exporting ? 'Conversion en cours…' : 'Télécharger .bvh'}</span>
+            <span>{exporting
+              ? (format === 'fbx' ? 'Blender en cours…' : 'Conversion en cours…')
+              : `Télécharger .${format}`}
+            </span>
           </button>
         </div>
 

@@ -67,7 +67,7 @@ const DEFAULT_CFG = {
 
 // ─── Run reducer ─────────────────────────────────────────────────────────────
 const INITIAL_RUN = {
-  enabled:  Array(STEPS.length).fill(true),
+  enabled:  STEPS.map(s => s.defaultEnabled !== false),
   statuses: {},
   progress: {},
   current:  null,

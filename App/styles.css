@@ -704,6 +704,7 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--font-mono); fo
 }
 .step.done { border-color: rgba(110,231,167,0.2); }
 .step.error { border-color: rgba(255,122,122,0.3); }
+.step.locked { opacity: 0.7; border-style: dashed; }
 
 .step .badge-num {
   width: 28px;
@@ -2030,6 +2031,72 @@ textarea { resize: vertical; min-height: 80px; font-family: var(--font-mono); fo
   letter-spacing: 0.02em;
 }
 .sync-note .em { color: var(--fg-2); font-family: var(--font-mono); font-size: 10.5px; }
+
+/* ── Hand Tracking panel ──────────────────────────────────── */
+.hand-panel {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.015);
+}
+.hand-toggle-row { display: flex; align-items: flex-start; }
+.hand-toggle-label {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+}
+.hand-checkbox {
+  flex: 0 0 16px; width: 16px; height: 16px; border-radius: 4px; margin-top: 1px;
+  border: 1.5px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s;
+}
+.hand-checkbox.checked {
+  background: var(--accent); border-color: var(--accent);
+}
+.hand-toggle-title { font-size: 12.5px; font-weight: 500; color: var(--fg-1); display: flex; align-items: center; gap: 6px; }
+.hand-badge {
+  font-size: 9.5px; padding: 1px 6px; border-radius: 10px;
+  background: rgba(124,77,255,0.15); color: rgba(180,130,255,0.9);
+  border: 1px solid rgba(124,77,255,0.3); font-weight: 500;
+}
+.hand-toggle-sub { font-size: 11px; color: var(--fg-4); margin-top: 1px; }
+
+.hand-config { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.hand-config-row { display: flex; align-items: center; gap: 10px; }
+.hand-config-label { font-size: 11px; color: var(--fg-3); min-width: 72px; }
+
+.hand-adb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hand-adb-msg {
+  font-size: 11px; padding: 4px 9px; border-radius: 6px;
+}
+.hand-adb-msg.ok  { color: var(--success); background: rgba(110,231,167,0.08); border: 1px solid rgba(110,231,167,0.2); }
+.hand-adb-msg.err { color: var(--error);   background: rgba(255,122,122,0.08); border: 1px solid rgba(255,122,122,0.2); }
+.hand-adb-hint { font-size: 11px; color: var(--fg-4); }
+
+.hand-status-row { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.hand-status-box { flex: 1; min-width: 200px; }
+.hand-status-head { font-size: 10.5px; color: var(--fg-4); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
+.hand-status-pill {
+  font-size: 11.5px; padding: 6px 10px; border-radius: 7px;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.03);
+  color: var(--fg-3); display: flex; align-items: center; gap: 6px;
+}
+.hand-status-pill.connected { color: var(--success); border-color: rgba(110,231,167,0.3); background: rgba(110,231,167,0.06); }
+.hand-status-pill.waiting   { color: rgba(245,198,108,0.9); border-color: rgba(245,198,108,0.3); background: rgba(245,198,108,0.06); }
+.hand-status-pill.idle      { color: var(--fg-4); }
+.sdot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+.sdot.waiting { background: rgba(245,198,108,0.9); }
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+}
+
+.hand-preview-canvas {
+  border: 1px solid var(--line); border-radius: 8px;
+  background: rgba(0,0,0,0.3);
+}
 
 /* ── Files received list ──────────────────────────────────── */
 .files-section { margin-top: 28px; }

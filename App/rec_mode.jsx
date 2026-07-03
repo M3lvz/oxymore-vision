@@ -78,6 +78,14 @@ function RecMode({ project, onExit }) {
   const [takes,  setTakes]  = useStateREC(1);
   const elapsed = useRecTimer(recording, paused);
 
+  // ── Hand Tracking ─────────────────────────────────────────────────────────────
+  const [handEnabled,   setHandEnabled]   = useStateREC(false);
+  const [handProto,     setHandProto]     = useStateREC('tcp');
+  const [handStatus,    setHandStatus]    = useStateREC(null);
+  const [handFrame,     setHandFrame]     = useStateREC(null);
+  const [adbInfo,       setAdbInfo]       = useStateREC(null);
+  const [adbLoading,    setAdbLoading]    = useStateREC(false);
+
   // ── API ───────────────────────────────────────────────────────────────────────
   function checkFirewall() {
     fetch('/api/rec/firewall-status').then(r => r.json()).then(setFwStatus).catch(() => {});
@@ -141,6 +149,7 @@ function RecMode({ project, onExit }) {
     const onUploaded = (f) => setFiles(prev => [...prev, f]);
     const onCleared  = ()  => setFiles([]);
     const onFrame    = (d) => setPreviews(prev => ({...prev, [d.sid]: d.frame}));
+    const onHandFrame = (f) => setHandFrame(f);
     if (typeof socket !== 'undefined') {
       socket.on('rec_device_joined',  onJoined);
       socket.on('rec_device_left',    onLeft);
@@ -148,6 +157,7 @@ function RecMode({ project, onExit }) {
       socket.on('rec_uploaded',       onUploaded);
       socket.on('rec_files_cleared',  onCleared);
       socket.on('rec_frame',          onFrame);
+      socket.on('hand_frame',         onHandFrame);
       return () => {
         socket.off?.('rec_device_joined',  onJoined);
         socket.off?.('rec_device_left',    onLeft);
@@ -155,19 +165,49 @@ function RecMode({ project, onExit }) {
         socket.off?.('rec_uploaded',       onUploaded);
         socket.off?.('rec_files_cleared',  onCleared);
         socket.off?.('rec_frame',          onFrame);
+        socket.off?.('hand_frame',         onHandFrame);
       };
     }
   }, []);
 
+  // Poll hand status while recording
+  useEffectREC(() => {
+    if (!recording || !handEnabled) return;
+    const id = setInterval(() => {
+      fetch('/api/rec/hand/status').then(r => r.json()).then(setHandStatus).catch(() => {});
+    }, 1500);
+    return () => clearInterval(id);
+  }, [recording, handEnabled]);
+
   function startRec() {
     if (typeof socket === 'undefined') return;
-    socket.emit('rec_command', { cmd: 'start' });
+    const payload = { cmd: 'start' };
+    if (handEnabled) {
+      payload.hand_tracking = {
+        protocol: handProto,
+        port: handProto === 'tcp' ? 8000 : 9000,
+      };
+    }
+    socket.emit('rec_command', payload);
     setRecording(true); setPaused(false); setTakes(1);
   }
   function stopRec() {
     if (typeof socket === 'undefined') return;
     socket.emit('rec_command', { cmd: 'stop' });
     setRecording(false); setPaused(false);
+  }
+
+  async function setupAdb() {
+    setAdbLoading(true);
+    try {
+      const r = await fetch('/api/rec/hand/adb-setup', { method: 'POST' });
+      const d = await r.json();
+      setAdbInfo(d);
+    } catch (e) {
+      setAdbInfo({ ok: false, message: e.message });
+    } finally {
+      setAdbLoading(false);
+    }
   }
 
   async function importToProject() {
@@ -338,6 +378,11 @@ function RecMode({ project, onExit }) {
                 onStart={startRec} onStop={stopRec}
                 onTogglePause={() => setPaused(p => !p)}
                 onMark={() => setTakes(t => t + 1)}
+                handEnabled={handEnabled} onHandEnabled={setHandEnabled}
+                handProto={handProto}     onHandProto={setHandProto}
+                handStatus={handStatus}   handFrame={handFrame}
+                adbInfo={adbInfo}         adbLoading={adbLoading}
+                onSetupAdb={setupAdb}
               />
             )}
             {step === 'export' && (
@@ -547,7 +592,8 @@ function RecConnexionPane({ fwBanner, fwProfile, httpsUrl, httpsReady, httpsLoad
 // ─────────────────────────────────────────────────────────────────────────────
 // Pane: Caméras
 // ─────────────────────────────────────────────────────────────────────────────
-function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, onStart, onStop, onTogglePause, onMark }) {
+function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, onStart, onStop, onTogglePause, onMark,
+  handEnabled, onHandEnabled, handProto, onHandProto, handStatus, handFrame, adbInfo, adbLoading, onSetupAdb }) {
   const ready    = devices.filter(d => d.status !== 'offline').length;
   const canStart = ready > 0 && !recording;
 
@@ -647,7 +693,187 @@ function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, 
           : <>Démarrage simultané — <span className="em">flash blanc</span> de synchronisation au lancement.</>
         }
       </div>
+
+      {/* ── Hand Tracking panel ─────────────────────────────────────────────── */}
+      <div className="step-eyebrow" style={{ marginTop:28 }}>
+        <span className="lbl">Options avancées</span>
+        <span className="rule"/>
+      </div>
+
+      <div className="hand-panel">
+        {/* Toggle row */}
+        <div className="hand-toggle-row">
+          <label className="hand-toggle-label">
+            <div
+              className={['hand-checkbox', handEnabled && 'checked'].filter(Boolean).join(' ')}
+              onClick={() => !recording && onHandEnabled(v => !v)}
+              style={{ cursor: recording ? 'not-allowed' : 'pointer' }}
+            >
+              {handEnabled && (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width:11, height:11 }}>
+                  <path d="m5 12 5 5L20 7"/>
+                </svg>
+              )}
+            </div>
+            <div>
+              <div className="hand-toggle-title">Hand Tracking <span className="hand-badge">Meta Quest</span></div>
+              <div className="hand-toggle-sub">Capture simultanée des doigts via le casque VR</div>
+            </div>
+          </label>
+        </div>
+
+        {handEnabled && (
+          <div className="hand-config">
+            {/* Protocol */}
+            <div className="hand-config-row">
+              <span className="hand-config-label">Protocole</span>
+              <Segmented
+                value={handProto}
+                onChange={v => !recording && onHandProto(v)}
+                options={[
+                  { value: 'tcp', label: 'USB / ADB' },
+                  { value: 'udp', label: 'WiFi / UDP' },
+                ]}
+              />
+            </div>
+
+            {/* ADB setup (TCP only) */}
+            {handProto === 'tcp' && (
+              <div className="hand-adb-row">
+                <button
+                  className="btn sm"
+                  onClick={onSetupAdb}
+                  disabled={adbLoading || recording}
+                >
+                  {adbLoading ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ width:12, height:12, animation:'spin .9s linear infinite' }}>
+                      <path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/>
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ width:12, height:12 }}>
+                      <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 4v4M16 4v4M2 12h20"/>
+                    </svg>
+                  )}
+                  <span>{adbLoading ? 'Config…' : 'Configurer ADB'}</span>
+                </button>
+                {adbInfo && (
+                  <div className={['hand-adb-msg', adbInfo.ok ? 'ok' : 'err'].join(' ')}>
+                    {adbInfo.ok ? '✓ ' : '✗ '}{adbInfo.message}
+                  </div>
+                )}
+                {!adbInfo && (
+                  <div className="hand-adb-hint">Branche le Quest en USB puis clique « Configurer ADB »</div>
+                )}
+              </div>
+            )}
+
+            {handProto === 'udp' && (
+              <div className="hand-adb-hint">
+                Sur le Quest, configure HTS avec l'IP de ce PC et le port <strong>9000</strong>
+              </div>
+            )}
+
+            {/* Status + preview row */}
+            <div className="hand-status-row">
+              {/* Status indicator */}
+              <div className="hand-status-box">
+                <div className="hand-status-head">État Quest</div>
+                {!recording ? (
+                  <div className="hand-status-pill idle">En attente du démarrage REK</div>
+                ) : handStatus?.connected ? (
+                  <div className="hand-status-pill connected">
+                    <span className="sdot"/>
+                    Connecté · {handStatus.fps} fps · {handStatus.frame_count} frames
+                  </div>
+                ) : (
+                  <div className="hand-status-pill waiting">
+                    <span className="sdot waiting"/>
+                    En attente du Quest… (lance HTS sur le casque)
+                  </div>
+                )}
+              </div>
+
+              {/* Hand preview canvas */}
+              {recording && handFrame && (
+                <HandPreview frame={handFrame}/>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hand Preview — canvas 2D 21-joint visualization
+// ─────────────────────────────────────────────────────────────────────────────
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],       // Thumb
+  [0,5],[5,6],[6,7],[7,8],       // Index
+  [0,9],[9,10],[10,11],[11,12],  // Middle
+  [0,13],[13,14],[14,15],[15,16],// Ring
+  [0,17],[17,18],[18,19],[19,20],// Little
+  [5,9],[9,13],[13,17],          // Palm
+];
+
+function HandPreview({ frame }) {
+  const canvasRef = useRefREC(null);
+
+  useEffectREC(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    function drawHand(lm, color) {
+      if (!lm || lm.length < 21) return;
+      // Normalize to [0,1] across both axes using X/Z plane (Y=up, so X/Z = horizontal)
+      const xs = lm.map(p => p[0]);
+      const ys = lm.map(p => p[2]); // use Z as vertical in 2D view
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
+      const scale = Math.min((W/2 - 10) / rangeX, (H - 20) / rangeY) * 0.85;
+      const offX = (W/2 - rangeX * scale) / 2 + (color === 'teal' ? W/2 : 0);
+      const offY = 10 + (H - 20 - rangeY * scale) / 2;
+
+      function proj(p) {
+        return [
+          offX + (p[0] - minX) * scale,
+          offY + (maxY - p[2]) * scale,  // flip Y
+        ];
+      }
+
+      // Connections
+      ctx.strokeStyle = color === 'teal' ? 'rgba(45,212,191,0.7)' : 'rgba(99,179,237,0.7)';
+      ctx.lineWidth = 1.5;
+      for (const [a, b] of HAND_CONNECTIONS) {
+        const [ax, ay] = proj(lm[a]), [bx, by] = proj(lm[b]);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      }
+      // Joints
+      ctx.fillStyle = color === 'teal' ? 'rgba(45,212,191,1)' : 'rgba(99,179,237,1)';
+      for (let i = 0; i < 21; i++) {
+        const [px, py] = proj(lm[i]);
+        ctx.beginPath();
+        ctx.arc(px, py, i === 0 ? 3 : 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    drawHand(frame.left?.landmarks,  'blue');
+    drawHand(frame.right?.landmarks, 'teal');
+
+  }, [frame]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={220} height={120}
+      className="hand-preview-canvas"
+    />
   );
 }
 

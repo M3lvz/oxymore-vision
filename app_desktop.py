@@ -823,6 +823,35 @@ class _WinAPI:
             print(f"[save_bvh] erreur : {e}", flush=True)
             return None
 
+    def save_fbx(self, b64_data, default_name=None):
+        """
+        Affiche un dialog 'Enregistrer sous' natif (filtre .fbx) et écrit
+        `b64_data` (FBX binaire encodé en base64) dans le fichier choisi.
+        Retourne le chemin écrit, ou None si annulé / erreur.
+        """
+        if not self._w:
+            return None
+        try:
+            import webview, base64 as _b64
+            if not default_name:
+                default_name = "export.fbx"
+            result = self._w.create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=default_name,
+                file_types=('Fichiers FBX (*.fbx)', 'Tous les fichiers (*.*)'),
+            )
+            if not result:
+                return None
+            path = result[0] if isinstance(result, (list, tuple)) else result
+            data = _b64.b64decode(b64_data)
+            with open(path, 'wb') as f:
+                f.write(data)
+            print(f"[save_fbx] écrit dans {path}", flush=True)
+            return str(path)
+        except Exception as e:
+            print(f"[save_fbx] erreur : {e}", flush=True)
+            return None
+
 
 if __name__ == "__main__":
     main()

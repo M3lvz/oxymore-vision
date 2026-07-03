@@ -127,7 +127,7 @@ function ConsoleView({ logs, runState, dispatchRun }) {
         }}>
           <StatCell label="Étape courante"
                     value={running ? STEPS[runState.current].label : '—'}
-                    sub={running ? `Étape ${runState.current + 1} / 8` : 'En attente'} />
+                    sub={running ? `Étape ${runState.current + 1} / ${STEPS.length}` : 'En attente'} />
           <StatCell label="CPU"
                     value={sysStats ? `${sysStats.cpu_pct}%` : '—'}
                     sub={sysStats?.cpu_name || 'CPU'}/>
