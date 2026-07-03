@@ -290,6 +290,17 @@ class HandReceiver:
 
     # ── UDP thread ─────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _extract_frame_num(line: str) -> int | None:
+        """Extrait le numéro de frame HTS depuis 'Right wrist | f = 1610 | ...'."""
+        try:
+            idx = line.index("| f = ")
+            rest = line[idx + 6:]
+            num = rest.split(" ")[0].strip()
+            return int(num)
+        except (ValueError, IndexError):
+            return None
+
     def _run_udp(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -300,6 +311,9 @@ class HandReceiver:
             return
         sock.setblocking(False)
         print(f"[HandReceiver] UDP en attente sur 0.0.0.0:{self._port}", flush=True)
+        # HTS envoie chaque main dans un paquet UDP séparé.
+        # On fusionne Right+Left par numéro de frame.
+        frame_buf: dict[int, dict] = {}   # {frame_num: {right:..., left:...}}
         try:
             while not self._stop_ev.is_set():
                 ready, _, _ = select.select([sock], [], [], 1.0)
@@ -308,16 +322,47 @@ class HandReceiver:
                 try:
                     data, _ = sock.recvfrom(65536)
                     self._connected = True
+                    lines = data.decode("utf-8", errors="replace").splitlines()
+
+                    # Numéro de frame HTS depuis la première ligne
+                    fnum = self._extract_frame_num(lines[0]) if lines else None
+
                     pending: dict = {}
-                    for line in data.decode("utf-8", errors="replace").splitlines():
-                        frame = self._process_line(line, pending)
-                        if frame:
-                            self._record_frame(frame)
-                    if pending:
+                    for line in lines:
+                        result = self._process_line(line, pending)
+                        if result:
+                            self._record_frame(result)
+
+                    if not pending:
+                        continue
+
+                    if fnum is None:
+                        # Pas de numéro → émission directe
                         self._record_frame(pending)
+                        continue
+
+                    # Fusion Left+Right par numéro de frame
+                    if fnum in frame_buf:
+                        frame_buf[fnum].update(pending)
+                    else:
+                        frame_buf[fnum] = dict(pending)
+
+                    buf = frame_buf[fnum]
+                    if "right" in buf and "left" in buf:
+                        self._record_frame(frame_buf.pop(fnum))
+                    else:
+                        # Purge les anciens frames (> 2 frames de retard)
+                        old = [k for k in frame_buf if k < fnum - 2]
+                        for k in old:
+                            self._record_frame(frame_buf.pop(k))
+
                 except Exception as e:
                     print(f"[HandReceiver] UDP erreur : {e}", flush=True)
         finally:
+            # Vider le buffer résiduel
+            for buf in frame_buf.values():
+                if buf:
+                    self._record_frame(buf)
             sock.close()
 
     # ── Flush ──────────────────────────────────────────────────────────────────
