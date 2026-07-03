@@ -899,7 +899,7 @@ function HandPreview({ frame }) {
     ctx.beginPath(); ctx.moveTo(half, pad); ctx.lineTo(half, H - labelH - 2); ctx.stroke();
     ctx.restore();
 
-    function drawInZone(hand, fingerColors, zoneX, zoneW, label, labelColor, stale) {
+    function drawInZone(hand, fingerColors, zoneX, zoneW, label, labelColor, stale, flipZ) {
       const rawLm = hand?.landmarks;
       const wData = hand?.wrist;  // [x,y,z, qx,qy,qz,qw]
 
@@ -916,8 +916,9 @@ function HandPreview({ frame }) {
       }
 
       // Applique la rotation du poignet aux landmarks (espace local → monde).
+      // flipZ : inverse l'axe Z local pour corriger la face visible (main gauche OpenXR).
       const lm = (wData && wData.length >= 7)
-        ? rawLm.map(p => rotVec(wData[3], wData[4], wData[5], wData[6], p[0], p[1], p[2]))
+        ? rawLm.map(p => rotVec(wData[3], wData[4], wData[5], wData[6], p[0], p[1], flipZ ? -p[2] : p[2]))
         : rawLm;
 
       const xs = lm.map(p => p[0]);
@@ -973,8 +974,8 @@ function HandPreview({ frame }) {
       ctx.restore();
     }
 
-    drawInZone(drawL, FINGER_COLORS_BLUE, 0,    half, 'G', 'rgba(129,140,248,0.9)', staleL);
-    drawInZone(drawR, FINGER_COLORS_TEAL, half, half, 'D', 'rgba(45,212,191,0.9)',  staleR);
+    drawInZone(drawL, FINGER_COLORS_BLUE, 0,    half, 'G', 'rgba(129,140,248,0.9)', staleL, true);
+    drawInZone(drawR, FINGER_COLORS_TEAL, half, half, 'D', 'rgba(45,212,191,0.9)',  staleR, false);
 
   }, [frame]);
 
