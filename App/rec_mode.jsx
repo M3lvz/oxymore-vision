@@ -916,12 +916,11 @@ function HandPreview({ frame }) {
       }
 
       // Applique la rotation du poignet aux landmarks (espace local → monde).
-      // Main gauche : espace miroir Unity → conjuguée de la quaternion (conjQuat=true).
+      // Main gauche : espace local miroir Unity → on miroir X après rotation normale.
       const lm = (wData && wData.length >= 7)
         ? rawLm.map(p => {
-            const s = conjQuat ? -1 : 1;
-            const [rx, ry, rz] = rotVec(s*wData[3], s*wData[4], s*wData[5], wData[6], p[0], p[1], p[2]);
-            return [rx, conjQuat ? -ry : ry, rz];
+            const [rx, ry, rz] = rotVec(wData[3], wData[4], wData[5], wData[6], p[0], p[1], p[2]);
+            return conjQuat ? [-rx, ry, rz] : [rx, ry, rz];
           })
         : rawLm;
 
