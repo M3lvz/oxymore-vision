@@ -397,7 +397,7 @@ function RecMode({ project, onExit }) {
                 handProto={handProto}     onHandProto={setHandProto}
                 handStatus={handStatus}   handFrame={handFrame}
                 adbInfo={adbInfo}         adbLoading={adbLoading}
-                onSetupAdb={setupAdb}
+                onSetupAdb={setupAdb}     project={project}
               />
             )}
             {step === 'export' && (
@@ -608,7 +608,7 @@ function RecConnexionPane({ fwBanner, fwProfile, httpsUrl, httpsReady, httpsLoad
 // Pane: Caméras
 // ─────────────────────────────────────────────────────────────────────────────
 function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, onStart, onStop, onTogglePause, onMark,
-  handEnabled, onHandEnabled, handProto, onHandProto, handStatus, handFrame, adbInfo, adbLoading, onSetupAdb }) {
+  handEnabled, onHandEnabled, handProto, onHandProto, handStatus, handFrame, adbInfo, adbLoading, onSetupAdb, project }) {
   const ready    = devices.filter(d => d.status !== 'offline').length;
   const canStart = ready > 0 && !recording;
 

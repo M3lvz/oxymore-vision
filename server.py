@@ -1330,9 +1330,10 @@ def hand_start():
     body  = request.get_json(silent=True) or {}
     proto = body.get("protocol", "tcp")
     port  = body.get("port")
-    proj  = state.get("project_dir") or body.get("project_dir", "")
+    proj  = state.get("project_dir") or body.get("project_dir") or ""
     if not proj:
-        return jsonify({"error": "Aucun projet actif"}), 400
+        import tempfile as _tmp
+        proj = os.path.join(_tmp.gettempdir(), "oxym_hand_test")
     out = _hand_output_path(proj)
 
     def _on_frame(frame):
