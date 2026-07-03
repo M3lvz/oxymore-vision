@@ -856,9 +856,19 @@ const FINGER_COLORS_BLUE = [
   'rgba(79,70,229,0.9)',
 ];
 
+// Retourne le vecteur local (axisIdx=0→X, 1→Y, 2→Z) d'un quaternion [qx,qy,qz,qw]
+// projeté sur le plan XY canvas (Y inversé car canvas Y↓)
+function quatAxis2D(qx, qy, qz, qw, axisIdx) {
+  let wx, wy;
+  if (axisIdx === 0) { wx = 1-2*(qy*qy+qz*qz); wy = 2*(qx*qy+qw*qz); }
+  else if (axisIdx === 1) { wx = 2*(qx*qy-qw*qz); wy = 1-2*(qx*qx+qz*qz); }
+  else { wx = 2*(qx*qz+qw*qy); wy = 2*(qy*qz-qw*qx); }
+  return [wx, -wy]; // flip Y pour canvas
+}
+
 function HandPreview({ frame }) {
   const canvasRef = useRefREC(null);
-  const lastLRef  = useRefREC(null);
+  const lastLRef  = useRefREC(null);  // {wrist, landmarks}
   const lastRRef  = useRefREC(null);
 
   useEffectREC(() => {
@@ -868,17 +878,14 @@ function HandPreview({ frame }) {
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const lmR = frame?.right?.landmarks || null;
-    const lmL = frame?.left?.landmarks  || null;
+    // Mémorise l'objet main complet (wrist + landmarks) → freeze sur perte tracking
+    if (frame?.left)  lastLRef.current = frame.left;
+    if (frame?.right) lastRRef.current = frame.right;
 
-    // Mémorise la dernière position connue → pas de clignotement en cas de perte
-    if (lmL) lastLRef.current = lmL;
-    if (lmR) lastRRef.current = lmR;
-
-    const drawL = lmL || lastLRef.current;
-    const drawR = lmR || lastRRef.current;
-    const staleL = !lmL && !!drawL;
-    const staleR = !lmR && !!drawR;
+    const drawL = frame?.left  || lastLRef.current;
+    const drawR = frame?.right || lastRRef.current;
+    const staleL = !frame?.left  && !!drawL;
+    const staleR = !frame?.right && !!drawR;
 
     if (!drawL && !drawR) return;
 
@@ -894,7 +901,10 @@ function HandPreview({ frame }) {
     ctx.beginPath(); ctx.moveTo(half, pad); ctx.lineTo(half, H - labelH - 2); ctx.stroke();
     ctx.restore();
 
-    function drawInZone(lm, fingerColors, zoneX, zoneW, label, labelColor, stale) {
+    function drawInZone(hand, fingerColors, zoneX, zoneW, label, labelColor, stale) {
+      const lm    = hand?.landmarks;
+      const wData = hand?.wrist;  // [x,y,z, qx,qy,qz,qw]
+
       ctx.save();
       if (stale) ctx.globalAlpha = 0.3;
 
@@ -918,8 +928,6 @@ function HandPreview({ frame }) {
       const ox = zoneX + (zoneW - rX * scale) / 2;
       const oy = pad + (drawH - rY * scale) / 2;
 
-      // Sans miroir : les coordonnées Unity placent naturellement le pouce
-      // à l'intérieur (vers le centre) pour chaque main
       function proj(p) {
         return [
           ox + (p[0] - minX) * scale,
@@ -954,6 +962,25 @@ function HandPreview({ frame }) {
         ctx.beginPath();
         ctx.arc(px, py, i === 0 ? 4 : (i % 4 === 0 ? 2.5 : 2), 0, Math.PI * 2);
         ctx.fill();
+      }
+
+      // ── Indicateur de rotation du poignet ──────────────────────────────
+      if (wData && wData.length >= 7) {
+        const [,,, qx, qy, qz, qw] = wData;
+        const [wx, wy] = proj(lm[0]);
+        const L = 20;
+        ctx.lineCap = 'round';
+        // Axe Y local (vers les doigts) — blanc
+        const [yax, yay] = quatAxis2D(qx, qy, qz, qw, 1);
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + yax*L, wy + yay*L); ctx.stroke();
+        // Axe X local (travers de la main) — couleur doigt pouce
+        const [xax, xay] = quatAxis2D(qx, qy, qz, qw, 0);
+        ctx.strokeStyle = fingerColors[0].replace('0.9', '0.55');
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + xax*L, wy + xay*L); ctx.stroke();
+        ctx.lineCap = 'butt';
       }
 
       // Label
