@@ -185,14 +185,14 @@ function RecMode({ project, onExit }) {
     }
   }, [handEnabled, recording]);
 
-  // Poll hand status while recording
+  // Poll hand status quand activé (pendant et hors REK)
   useEffectREC(() => {
-    if (!recording || !handEnabled) return;
+    if (!handEnabled) return;
     const id = setInterval(() => {
       fetch('/api/rec/hand/status').then(r => r.json()).then(setHandStatus).catch(() => {});
     }, 1500);
     return () => clearInterval(id);
-  }, [recording, handEnabled]);
+  }, [handEnabled]);
 
   function startRec() {
     if (typeof socket === 'undefined') return;
@@ -790,28 +790,34 @@ function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, 
 
             {/* Status + preview row */}
             <div className="hand-status-row">
-              {/* Status indicator */}
+              {/* Status indicator + test button */}
               <div className="hand-status-box">
                 <div className="hand-status-head">État Quest</div>
-                {!recording ? (
-                  <div className="hand-status-pill idle">En attente du démarrage REK</div>
-                ) : handStatus?.connected ? (
+                {handStatus?.connected ? (
                   <div className="hand-status-pill connected">
                     <span className="sdot"/>
                     Connecté · {handStatus.fps} fps · {handStatus.frame_count} frames
                   </div>
-                ) : (
+                ) : handStatus?.running ? (
                   <div className="hand-status-pill waiting">
                     <span className="sdot waiting"/>
                     En attente du Quest… (lance HTS sur le casque)
                   </div>
+                ) : (
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <div className="hand-status-pill idle">Receiver arrêté</div>
+                    <button className="btn sm" onClick={() =>
+                      fetch('/api/rec/hand/start', {
+                        method:'POST', headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({ protocol: handProto, port: handProto==='tcp' ? 8000 : 9000, project_dir: project?.path }),
+                      }).then(r => r.json()).then(setHandStatus)
+                    }>Tester</button>
+                  </div>
                 )}
               </div>
 
-              {/* Hand preview canvas */}
-              {recording && handFrame && (
-                <HandPreview frame={handFrame}/>
-              )}
+              {/* Hand preview canvas — visible dès qu'un frame arrive */}
+              {handFrame && <HandPreview frame={handFrame}/>}
             </div>
           </div>
         )}
