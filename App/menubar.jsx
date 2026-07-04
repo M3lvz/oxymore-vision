@@ -148,7 +148,7 @@ function MenuBar({ onNav, onNewProject, onOpenProject, onSave, onClean, onRunAll
           }
         },
         { separator: true },
-        { label:'Exporter en BVH…', action:handleExportBvh,
+        { label:'Exporter…', action:handleExportBvh,
           disabled: !projectDir },
       ]
     },

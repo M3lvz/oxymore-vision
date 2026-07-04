@@ -263,7 +263,7 @@ function Results({ project }) {
                   style={{background:'rgba(126,184,247,0.1)',
                           borderColor:'#7eb8f7', color:'#7eb8f7'}}>
             {Icon.download}
-            <span>Exporter en BVH</span>
+            <span>Exporter</span>
           </button>
           <button className="btn" onClick={scan} disabled={loading || !projPath}>
             {IcoRefresh}
@@ -288,7 +288,7 @@ function Results({ project }) {
 
             {/* Titre */}
             <div style={{fontSize:13, fontWeight:600, color:'var(--fg-0)', marginBottom:6}}>
-              Exporter en BVH
+              Exporter
             </div>
 
             {/* Description */}
@@ -319,7 +319,7 @@ function Results({ project }) {
                 borderColor:'#7eb8f7', color:'#7eb8f7',
               }}>
               {IcoRefresh && Icon.download}
-              <span>Exporter en BVH</span>
+              <span>Exporter</span>
             </button>
 
             {projPath && (files.osim.length === 0 || files.mot.length === 0) && (

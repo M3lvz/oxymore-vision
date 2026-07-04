@@ -18,18 +18,35 @@ function Pipeline({ runState, dispatchRun, project, licenseValid }) {
   const { enabled, current, statuses, progress, startedAt } = runState;
   const running = current != null;
   const [handAvailable, setHandAvailable] = useStateP(false);
+  const [hasHead, setHasHead] = useStateP(false);
 
   useEffectP(() => {
     if (!project?.path) return;
     fetch(`/api/rec/hand/check?project=${encodeURIComponent(project.path)}`)
       .then(r => r.json())
-      .then(d => setHandAvailable(!!d.exists))
+      .then(d => { setHandAvailable(!!d.exists); setHasHead(!!d.has_head); })
       .catch(() => {});
   }, [project?.path]);
+
+  // Auto-coche handFusion dès que des données Quest sont détectées,
+  // sauf si l'user l'a explicitement désactivé pour ce projet.
+  useEffectP(() => {
+    if (!handAvailable) return;
+    const key = `handFusion_disabled_${project?.path}`;
+    if (localStorage.getItem(key) === '1') return;
+    const idx = STEPS.findIndex(s => s.id === 'handFusion');
+    if (!runState.enabled[idx]) dispatchRun({ type: 'TOGGLE_STEP', id: 'handFusion' });
+  }, [handAvailable]);
 
   function toggle(id) {
     if (running) return;
     if (id === 'handFusion' && !handAvailable) return;
+    if (id === 'handFusion') {
+      const idx = STEPS.findIndex(s => s.id === 'handFusion');
+      const key = `handFusion_disabled_${project?.path}`;
+      if (runState.enabled[idx]) localStorage.setItem(key, '1');
+      else localStorage.removeItem(key);
+    }
     dispatchRun({ type: 'TOGGLE_STEP', id });
   }
 
@@ -157,6 +174,10 @@ function Pipeline({ runState, dispatchRun, project, licenseValid }) {
               <div
                 key={s.id}
                 className={`step ${status === 'done' ? 'done' : ''} ${isRunning ? 'running' : ''} ${status === 'error' ? 'error' : ''} ${locked ? 'locked' : ''}`}
+                style={isHandFusion && handAvailable ? {
+                  borderColor: 'rgba(167,139,250,0.35)',
+                  background: 'rgba(139,92,246,0.07)',
+                } : undefined}
               >
                 {/* num/step indicator */}
                 <div className="badge-num">
@@ -182,20 +203,28 @@ function Pipeline({ runState, dispatchRun, project, licenseValid }) {
                 {/* info */}
                 <div className="info" style={{ opacity: locked ? 0.5 : 1 }}>
                   <div className="name" style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    {s.label}
+                    {isHandFusion && hasHead ? 'Fusion corps + mains + tête' : s.label}
                     {isHandFusion && (
                       <span style={{
                         fontSize:9.5, padding:'1px 6px', borderRadius:10,
-                        background: handAvailable ? 'rgba(45,212,191,0.12)' : 'rgba(255,255,255,0.06)',
-                        color: handAvailable ? 'rgba(45,212,191,0.9)' : 'var(--fg-4)',
-                        border: `1px solid ${handAvailable ? 'rgba(45,212,191,0.3)' : 'var(--line)'}`,
+                        background: handAvailable
+                          ? (hasHead ? 'rgba(167,139,250,0.15)' : 'rgba(45,212,191,0.12)')
+                          : 'rgba(255,255,255,0.06)',
+                        color: handAvailable
+                          ? (hasHead ? 'rgba(196,181,253,0.95)' : 'rgba(45,212,191,0.9)')
+                          : 'var(--fg-4)',
+                        border: `1px solid ${handAvailable
+                          ? (hasHead ? 'rgba(167,139,250,0.4)' : 'rgba(45,212,191,0.3)')
+                          : 'var(--line)'}`,
                         fontWeight:500,
                       }}>
-                        {handAvailable ? 'Quest détecté' : 'Requiert hand_tracking.json'}
+                        {handAvailable
+                          ? (hasHead ? 'Quest · mains + tête' : 'Quest · mains seules')
+                          : 'Requiert hand_tracking.json'}
                       </span>
                     )}
                   </div>
-                  <div className="desc">{s.desc}</div>
+                  <div className="desc">{isHandFusion && hasHead ? 'Fusionne corps (Pose2Sim) + mains + pose tête (Quest) → BVH complet' : s.desc}</div>
                   {(isRunning || status === 'done') && (
                     <div className="meta">
                       {isRunning && <span style={{ color: 'var(--fg-1)' }}>{stepProgress}%</span>}

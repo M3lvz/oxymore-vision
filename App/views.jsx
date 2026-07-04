@@ -200,7 +200,8 @@ function StatCell({ label, value, sub, highlight }) {
 // ─────────────────────────────────────────────────────────────
 // 3D Viewer — connecté au backend réel
 // ─────────────────────────────────────────────────────────────
-function Viewer3D({ project }) {
+function Viewer3D({ project, runState }) {
+  const handFusionEnabled = runState?.enabled[STEPS.findIndex(s => s.id === 'handFusion')] || false;
   const [frame,    setFrame]   = useStateCon(0);
   const [playing,  setPlaying] = useStateCon(false);
   const [trcFiles, setTrcFiles]= useStateCon([]);
@@ -322,10 +323,20 @@ function Viewer3D({ project }) {
               ))}
             </select>
           )}
+          {handFusionEnabled && (
+            <div style={{
+              display:'flex', alignItems:'center', gap:6, padding:'5px 10px',
+              borderRadius:8, border:'1px solid rgba(167,139,250,0.4)',
+              background:'rgba(139,92,246,0.1)', color:'rgba(196,181,253,0.95)',
+              fontSize:11, fontWeight:500,
+            }}>
+              {Icon.hand}<span>+ doigts Quest</span>
+            </div>
+          )}
           <button className="btn" onClick={() => setBvhOpen(true)}
                   style={{background:'rgba(126,184,247,0.1)',
                           borderColor:'#7eb8f7', color:'#7eb8f7'}}>
-            {Icon.download}<span>Exporter en BVH</span>
+            {Icon.download}<span>Exporter</span>
           </button>
         </div>
       </div>

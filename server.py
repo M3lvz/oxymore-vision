@@ -1335,11 +1335,12 @@ def hand_start():
         import tempfile as _tmp
         proj = os.path.join(_tmp.gettempdir(), "oxym_hand_test")
     out = _hand_output_path(proj)
+    raw_log = bool(body.get("raw_log", False))
 
     def _on_frame(frame):
         socketio.emit("hand_frame", frame)
 
-    ok = _hand_receiver.start(out, protocol=proto, port=port, on_frame=_on_frame)
+    ok = _hand_receiver.start(out, protocol=proto, port=port, on_frame=_on_frame, raw_log=raw_log)
     return jsonify({"ok": ok, "output": out, **_hand_receiver.status})
 
 @app.route("/api/rec/hand/stop", methods=["POST"])
@@ -1362,11 +1363,18 @@ def hand_check():
     """Vérifie si hand_tracking.json existe dans le projet actif."""
     proj = request.args.get("project") or state.get("project_dir", "")
     if not proj:
-        return jsonify({"exists": False})
+        return jsonify({"exists": False, "has_head": False})
     path = _hand_output_path(proj)
     exists = os.path.isfile(path)
     size   = os.path.getsize(path) if exists else 0
-    return jsonify({"exists": exists, "path": path, "size": size})
+    has_head = False
+    if exists:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                has_head = '"head"' in f.read()
+        except Exception:
+            pass
+    return jsonify({"exists": exists, "path": path, "size": size, "has_head": has_head})
 
 # ─── Export BVH ───────────────────────────────────────────────────────────────
 @app.route("/api/export/bvh", methods=["POST"])

@@ -248,8 +248,145 @@ function NewProjectModal({ onClose, onCreated, initialPath }) {
   );
 }
 
+// ─── Quest Hand & Head Tracking banner ───────────────────────────────────────
+const _HAND_FUSION_IDX = window.STEPS
+  ? window.STEPS.findIndex(s => s.id === 'handFusion')
+  : 8;
+
+function QuestBanner({ projectDir, onNav, runState, dispatchRun }) {
+  const [detected, setDetected] = useStateDash(false);
+  const [hasHead,  setHasHead]  = useStateDash(false);
+
+  const fusionIdx = window.STEPS ? window.STEPS.findIndex(s => s.id === 'handFusion') : 8;
+
+  useEffectDash(() => {
+    if (!projectDir) { setDetected(false); setHasHead(false); return; }
+
+    function check() {
+      fetch(`/api/rec/hand/check?project=${encodeURIComponent(projectDir)}`)
+        .then(r => r.json())
+        .then(d => {
+          setDetected(!!d.exists);
+          setHasHead(!!d.has_head);
+          if (d.exists && dispatchRun && runState) {
+            const key = `handFusion_disabled_${projectDir}`;
+            if (localStorage.getItem(key) !== '1' && !runState.enabled[fusionIdx]) {
+              dispatchRun({ type: 'TOGGLE_STEP', id: 'handFusion' });
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
+    check();
+    const id = setInterval(check, 5000);
+    return () => clearInterval(id);
+  }, [projectDir]);
+
+  const enabled = !!(runState?.enabled?.[fusionIdx]);
+
+  function toggle() {
+    if (!detected || !dispatchRun) return;
+    const key = `handFusion_disabled_${projectDir}`;
+    if (enabled) localStorage.setItem(key, '1');
+    else localStorage.removeItem(key);
+    dispatchRun({ type: 'TOGGLE_STEP', id: 'handFusion' });
+  }
+
+  const active = detected && enabled;
+
+  return (
+    <div style={{
+      marginTop: 18,
+      padding: '16px 24px 16px 10px',
+      borderRadius: 14,
+      background: active
+        ? 'linear-gradient(135deg, rgba(109,40,217,0.13) 0%, rgba(139,92,246,0.07) 100%)'
+        : 'rgba(255,255,255,0.02)',
+      border: `1px solid ${active ? 'rgba(139,92,246,0.35)' : 'var(--line)'}`,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 20,
+      overflow: 'visible',
+      transition: 'border-color .3s, background .3s',
+    }}>
+      {/* Image Quest — dépasse légèrement */}
+      <img src="/quest.webp" alt="Meta Quest" style={{
+        width: 110, height: 110, flexShrink: 0,
+        objectFit: 'contain',
+        marginTop: -18, marginBottom: -18, marginLeft: 4,
+        opacity: active ? 1 : 0.35,
+        transition: 'opacity .3s, filter .3s',
+        filter: active ? 'drop-shadow(0 4px 16px rgba(139,92,246,0.4))' : 'none',
+      }} />
+
+      {/* Texte */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 13, fontWeight: 600, marginBottom: 3,
+          color: active ? 'rgba(196,181,253,1)' : 'var(--fg-2)',
+          transition: 'color .3s',
+        }}>
+          Hand & Head Tracking — Meta Quest
+          <span style={{
+            marginLeft: 7, fontSize: 9, fontWeight: 600, letterSpacing: '0.06em',
+            padding: '1px 6px', borderRadius: 999,
+            background: 'rgba(245,158,11,0.15)',
+            border: '1px solid rgba(245,158,11,0.35)',
+            color: 'rgba(251,191,36,0.9)',
+            verticalAlign: 'middle', textTransform: 'uppercase',
+          }}>beta</span>
+          {detected && hasHead && <span style={{
+            marginLeft: 8, fontSize: 10, fontWeight: 500,
+            padding: '1px 7px', borderRadius: 999,
+            background: 'rgba(139,92,246,0.2)',
+            border: '1px solid rgba(139,92,246,0.4)',
+            color: 'rgba(196,181,253,0.9)',
+            verticalAlign: 'middle',
+          }}>mains + tête</span>}
+        </div>
+        <div style={{
+          fontSize: 12, lineHeight: 1.45,
+          color: active ? 'rgba(167,139,250,0.75)' : 'var(--fg-4)',
+          transition: 'color .3s',
+        }}>
+          {!detected
+            ? 'Enregistrez une session Hand Tracking Streamer pour activer la fusion mains + tête dans le pipeline.'
+            : active
+              ? 'Fusion active — les doigts et la pose tête Quest seront fusionnés avec la cinématique corps.'
+              : 'Données Quest disponibles. Activez le toggle pour fusionner avec la cinématique corps.'}
+        </div>
+      </div>
+
+      {/* Toggle */}
+      <div
+        title={!detected ? 'Aucune donnée Quest détectée' : enabled ? 'Désactiver la fusion Quest' : 'Activer la fusion Quest'}
+        onClick={toggle}
+        style={{
+          width: 44, height: 24, borderRadius: 12, flexShrink: 0,
+          background: active ? 'rgba(139,92,246,0.85)' : 'rgba(255,255,255,0.12)',
+          position: 'relative',
+          cursor: detected ? 'pointer' : 'not-allowed',
+          opacity: detected ? 1 : 0.4,
+          transition: 'background .25s, opacity .25s',
+          boxShadow: active ? '0 0 10px rgba(139,92,246,0.4)' : 'none',
+        }}
+      >
+        <div style={{
+          position: 'absolute',
+          width: 18, height: 18, borderRadius: '50%',
+          background: '#fff',
+          top: 3, left: enabled ? 23 : 3,
+          transition: 'left .2s',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+        }} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Dashboard principal ──────────────────────────────────────────────────────
-function Dashboard({ onOpen, onNav, projectDir, onSetProject }) {
+function Dashboard({ onOpen, onNav, projectDir, onSetProject, runState, dispatchRun }) {
   const [filter,     setFilter]    = useStateDash('Tous');
   const [projects,   setProjects]  = useStateDash([]);
   const [loading,    setLoading]   = useStateDash(false);
@@ -315,7 +452,6 @@ function Dashboard({ onOpen, onNav, projectDir, onSetProject }) {
 
   function handleOpen(p) {
     onSetProject?.(p.path);
-    onNav?.('pipeline');
   }
 
   return (
@@ -521,6 +657,9 @@ function Dashboard({ onOpen, onNav, projectDir, onSetProject }) {
             </div>
           ))}
         </div>
+
+        {/* Quest Hand & Head Tracking */}
+        <QuestBanner projectDir={projectDir} onNav={onNav} runState={runState} dispatchRun={dispatchRun} />
 
         {/* Quick start + Système */}
         <div style={{ marginTop:28, display:'grid', gridTemplateColumns:'1.4fr 1fr', gap:16 }}>

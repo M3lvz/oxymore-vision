@@ -286,6 +286,64 @@ function TabKine({ cfg, set }) {
   );
 }
 
+function TabQuest({ cfg, set }) {
+  const HEAD_KPS = ['Head','Nose','LEye','REye','LEar','REar'];
+  const ignored = (cfg.quest?.ignore_head_keypoints || []);
+  function toggleKp(kp) {
+    const next = ignored.includes(kp) ? ignored.filter(k => k !== kp) : [...ignored, kp];
+    set('quest.ignore_head_keypoints', next);
+  }
+  return (
+    <>
+      <SectionHeading>Synchronisation</SectionHeading>
+      <div className="grid-2">
+        <Field label="Méthode de sync" help="timestamp = horodatage serveur · gesture = geste commun détectable">
+          <Select
+            value={cfg.quest?.sync_method || 'timestamp'}
+            onChange={v => set('quest.sync_method', v)}
+            options={['timestamp','gesture']}
+          />
+        </Field>
+        <Field label="Décalage manuel (ms)" help="Correction fine si les streams sont décalés">
+          <Input value={cfg.quest?.offset_ms ?? '0'} onChange={v => set('quest.offset_ms', v)} placeholder="0"/>
+        </Field>
+      </div>
+
+      <SectionHeading>Keypoints tête à ignorer (Pose2Sim)</SectionHeading>
+      <div style={{ fontSize:12, color:'var(--fg-3)', marginBottom:12 }}>
+        Quand le casque Quest est porté, ces keypoints sont occultés — les exclure évite les artéfacts de reconstruction.
+      </div>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+        {HEAD_KPS.map(kp => (
+          <label key={kp} style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer',
+            padding:'4px 10px', borderRadius:8, fontSize:12,
+            background: ignored.includes(kp) ? 'rgba(167,139,250,0.15)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${ignored.includes(kp) ? 'rgba(167,139,250,0.4)' : 'var(--line)'}`,
+            color: ignored.includes(kp) ? 'rgba(196,181,253,0.95)' : 'var(--fg-2)',
+          }}>
+            <input type="checkbox" checked={ignored.includes(kp)} onChange={() => toggleKp(kp)}
+                   style={{ accentColor:'#a78bfa' }}/>
+            {kp}
+          </label>
+        ))}
+      </div>
+
+      <SectionHeading>Pose tête</SectionHeading>
+      <ToggleRow
+        name="Utiliser la pose tête Quest"
+        desc="Remplace les keypoints tête Pose2Sim par la pose 6DoF du casque (head_tracking.json)"
+        value={cfg.quest?.use_head_pose !== false}
+        onChange={v => set('quest.use_head_pose', v)}
+      />
+      <div className="grid-2" style={{ marginTop:14 }}>
+        <Field label="Poids pose tête (0–1)" help="1 = 100% Quest, 0 = 100% Pose2Sim">
+          <Input value={cfg.quest?.head_pose_weight ?? '1.0'} onChange={v => set('quest.head_pose_weight', v)} placeholder="1.0"/>
+        </Field>
+      </div>
+    </>
+  );
+}
+
 function TabRaw({ rawText, setRawText }) {
   return (
     <>
@@ -410,6 +468,7 @@ function Configuration({ cfg, setCfg, project, onReloadConfig }) {
           {tab === 'filt'        && <TabFilt        cfg={cfg} set={set}/>}
           {tab === 'marker'      && <TabMarker      cfg={cfg} set={set}/>}
           {tab === 'kine'        && <TabKine        cfg={cfg} set={set}/>}
+          {tab === 'quest'       && <TabQuest       cfg={cfg} set={set}/>}
           {tab === 'raw'         && <TabRaw         rawText={rawText} setRawText={setRawText}/>}
         </div>
       </div>

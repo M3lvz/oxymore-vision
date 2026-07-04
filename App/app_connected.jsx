@@ -63,6 +63,8 @@ const DEFAULT_CFG = {
                 remove_individual_scaling_setup:true, remove_individual_ik_setup:true,
                 parallel_workers_kinematics:'auto' },
   logging: { use_custom_logging:false },
+  quest:   { sync_method:'timestamp', offset_ms:'0', use_head_pose:true,
+             head_pose_weight:'1.0', ignore_head_keypoints:['Head','Nose','LEye','REye','LEar','REar'] },
 };
 
 // ─── Run reducer ─────────────────────────────────────────────────────────────
@@ -241,6 +243,27 @@ function App() {
     }
     dispatch(action);
   }
+
+  // ── Sync Quest config ↔ handFusion toggle ────────────────────────────────
+  const _handFusionIdx = STEPS.findIndex(s => s.id === 'handFusion');
+  const _handFusionOn  = runState.enabled[_handFusionIdx];
+  const _prevHandFusion = useRefA(_handFusionOn);
+  useEffectA(() => {
+    if (_prevHandFusion.current === _handFusionOn) return;
+    _prevHandFusion.current = _handFusionOn;
+    setCfg(prev => {
+      const next = structuredClone(prev);
+      next.quest.ignore_head_keypoints = _handFusionOn
+        ? ['Head','Nose','LEye','REye','LEar','REar'] : [];
+      next.quest.use_head_pose = _handFusionOn;
+      fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      }).catch(() => {});
+      return next;
+    });
+  }, [_handFusionOn]);
 
   // ── Chargement config ─────────────────────────────────────────────────────
   async function loadConfig(path) {
@@ -512,12 +535,12 @@ function App() {
               </button>
             </div>
           )}
-          {view === 'dashboard'     && <Dashboard onNav={setView} onOpen={() => setView('pipeline')} projectDir={projectDir} onSetProject={handleSetProject}/>}
+          {view === 'dashboard'     && <Dashboard onNav={setView} onOpen={() => setView('pipeline')} projectDir={projectDir} onSetProject={handleSetProject} runState={runState} dispatchRun={dispatchRun}/>}
           {view === 'pipeline'      && <Pipeline runState={runState} dispatchRun={dispatchRun} project={project} licenseValid={licenseOk}/>}
           {view === 'results'       && <Results project={project}/>}
           {view === 'configuration' && <Configuration cfg={cfg} setCfg={setCfg} project={project} onReloadConfig={() => loadConfig(projectDir)}/>}
           {view === 'console'       && <ConsoleView logs={logs} runState={runState} dispatchRun={dispatchRun}/>}
-          {view === 'viewer'        && <Viewer3D project={project}/>}
+          {view === 'viewer'        && <Viewer3D project={project} runState={runState}/>}
           {view === 'explorer'      && <Explorer projectDir={projectDir}/>}
           {view === 'dependencies'  && <Dependencies/>}
           {view === 'key_manager'   && <KeyManager onLicenseActivated={v => setLicenseOk(v === false ? false : true)}/>}

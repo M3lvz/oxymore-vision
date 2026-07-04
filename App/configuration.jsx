@@ -3,15 +3,16 @@
 const { useState: useStateC, useMemo: useMemoC } = React;
 
 const CONFIG_TABS = [
-  { id: 'project',    label: 'Projet',         icon: Icon.folder,   count: 6 },
+  { id: 'project',    label: 'Projet',         icon: Icon.folder,   count: 8 },
   { id: 'pose',       label: 'Pose',           icon: Icon.pose,     count: 16 },
   { id: 'calibration',label: 'Calibration',    icon: Icon.calib,    count: 18 },
   { id: 'sync',       label: 'Synchronisation',icon: Icon.sync,     count: 9 },
   { id: 'assoc',      label: 'Association',    icon: Icon.people,   count: 5 },
   { id: 'tri',        label: 'Triangulation',  icon: Icon.tri,      count: 13 },
-  { id: 'filt',       label: 'Filtrage',       icon: Icon.filter,   count: 16 },
+  { id: 'filt',       label: 'Filtrage',       icon: Icon.filter,   count: 17 },
   { id: 'marker',     label: 'Augmentation',   icon: Icon.sparkle,  count: 2 },
-  { id: 'kine',       label: 'Cinématique',    icon: Icon.bone,     count: 10 },
+  { id: 'kine',       label: 'Cinématique',    icon: Icon.bone,     count: 11 },
+  { id: 'quest',      label: 'Quest / Fusion', icon: Icon.hand,     count: 5 },
   { id: 'raw',        label: 'TOML brut',      icon: Icon.doc,      count: '*' },
 ];
 

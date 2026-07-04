@@ -731,8 +731,8 @@ function RecCamerasPane({ devices, previews, recording, paused, takes, elapsed, 
               )}
             </div>
             <div>
-              <div className="hand-toggle-title">Hand Tracking <span className="hand-badge">Meta Quest</span></div>
-              <div className="hand-toggle-sub">Capture simultanée des doigts via le casque VR</div>
+              <div className="hand-toggle-title">Hand / Head Tracking <span className="hand-badge">Meta Quest</span><span style={{ marginLeft:6, fontSize:9, fontWeight:600, letterSpacing:'0.06em', padding:'1px 6px', borderRadius:999, background:'rgba(245,158,11,0.15)', border:'1px solid rgba(245,158,11,0.35)', color:'rgba(251,191,36,0.9)', verticalAlign:'middle', textTransform:'uppercase' }}>beta</span></div>
+              <div className="hand-toggle-sub">Capture simultanée des doigts + pose tête via le casque VR</div>
             </div>
           </label>
         </div>

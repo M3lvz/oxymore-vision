@@ -98,17 +98,19 @@ class HandReceiver:
         self._output_path: str | None = None
         self._on_frame = None
         self._connected = False
+        self._last_packet_t: float = 0.0
         self._frame_count = 0
         self._fps = 0.0
         self._fps_count = 0
         self._fps_window_t = 0.0
         self._protocol = "tcp"
         self._port = 8000
+        self._raw_log = False
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def start(self, output_path: str, protocol: str = "tcp",
-              port: int | None = None, on_frame=None) -> bool:
+              port: int | None = None, on_frame=None, raw_log: bool = False) -> bool:
         """Démarre la capture. Retourne False si déjà en cours."""
         if self._thread and self._thread.is_alive():
             return False
@@ -119,10 +121,12 @@ class HandReceiver:
         self._frames = []
         self._start_t = None
         self._connected = False
+        self._last_packet_t = 0.0
         self._frame_count = 0
         self._fps = 0.0
         self._fps_count = 0
         self._fps_window_t = 0.0
+        self._raw_log = raw_log
         self._stop_ev.clear()
         target = self._run_tcp if protocol == "tcp" else self._run_udp
         self._thread = threading.Thread(target=target, daemon=True,
@@ -191,6 +195,12 @@ class HandReceiver:
         line = line.strip()
         if not line:
             return None
+        if line.lower().startswith("head pose"):
+            raw = self._extract_values(line)
+            vals = self._floats_fr(raw) or self._floats(raw)
+            if len(vals) >= 7:
+                pending["head"] = {"pose": self._flip_z_wrist(vals[:7])}
+            return None
         for side_str, side_key in (("Right", "right"), ("Left", "left")):
             if line.startswith(f"{side_str} wrist"):
                 if side_key == "right" and pending:
@@ -238,6 +248,11 @@ class HandReceiver:
             except Exception:
                 pass
 
+    def _raw_log_path(self) -> str | None:
+        if not self._raw_log or not self._output_path:
+            return None
+        return str(Path(self._output_path).with_name("hts_raw.log"))
+
     # ── TCP thread ─────────────────────────────────────────────────────────────
 
     def _run_tcp(self):
@@ -251,6 +266,15 @@ class HandReceiver:
         srv.listen(1)
         srv.settimeout(1.0)
         print(f"[HandReceiver] TCP en attente sur localhost:{self._port}", flush=True)
+        raw_path = self._raw_log_path()
+        raw_f = None
+        if raw_path:
+            try:
+                os.makedirs(os.path.dirname(raw_path), exist_ok=True)
+                raw_f = open(raw_path, "w", encoding="utf-8")
+                print(f"[HandReceiver] Raw log → {raw_path}", flush=True)
+            except Exception as e:
+                print(f"[HandReceiver] Raw log non créé : {e}", flush=True)
         try:
             while not self._stop_ev.is_set():
                 try:
@@ -274,9 +298,15 @@ class HandReceiver:
                         while b"\n" in buf:
                             raw_line, buf = buf.split(b"\n", 1)
                             line = raw_line.decode("utf-8", errors="replace")
+                            if raw_f:
+                                raw_f.write(line + "\n")
+                                raw_f.flush()
                             frame = self._process_line(line, pending)
                             if frame:
                                 self._record_frame(frame)
+                            elif pending.get("head") and set(pending.keys()) == {"head"}:
+                                self._record_frame(pending.copy())
+                                pending.clear()
                 except Exception as e:
                     print(f"[HandReceiver] TCP erreur : {e}", flush=True)
                 finally:
@@ -287,6 +317,8 @@ class HandReceiver:
                     print("[HandReceiver] Quest déconnecté", flush=True)
         finally:
             srv.close()
+            if raw_f:
+                raw_f.close()
 
     # ── UDP thread ─────────────────────────────────────────────────────────────
 
@@ -311,17 +343,31 @@ class HandReceiver:
             return
         sock.setblocking(False)
         print(f"[HandReceiver] UDP en attente sur 0.0.0.0:{self._port}", flush=True)
+        raw_path = self._raw_log_path()
+        raw_f = None
+        if raw_path:
+            try:
+                os.makedirs(os.path.dirname(raw_path), exist_ok=True)
+                raw_f = open(raw_path, "w", encoding="utf-8")
+                print(f"[HandReceiver] Raw log → {raw_path}", flush=True)
+            except Exception as e:
+                print(f"[HandReceiver] Raw log non créé : {e}", flush=True)
         # HTS envoie chaque main dans un paquet UDP séparé.
         # On fusionne Right+Left par numéro de frame.
         frame_buf: dict[int, dict] = {}   # {frame_num: {right:..., left:...}}
+        _UDP_TIMEOUT = 3.0  # secondes sans paquet → déconnecté
         try:
             while not self._stop_ev.is_set():
                 ready, _, _ = select.select([sock], [], [], 1.0)
                 if not ready:
+                    if self._connected and (time.time() - self._last_packet_t) > _UDP_TIMEOUT:
+                        self._connected = False
+                        print("[HandReceiver] Quest UDP silencieux — déconnecté", flush=True)
                     continue
                 try:
                     data, _ = sock.recvfrom(65536)
                     self._connected = True
+                    self._last_packet_t = time.time()
                     lines = data.decode("utf-8", errors="replace").splitlines()
 
                     # Numéro de frame HTS depuis la première ligne
@@ -329,11 +375,19 @@ class HandReceiver:
 
                     pending: dict = {}
                     for line in lines:
+                        if raw_f:
+                            raw_f.write(line + "\n")
+                            raw_f.flush()
                         result = self._process_line(line, pending)
                         if result:
                             self._record_frame(result)
 
                     if not pending:
+                        continue
+
+                    # Paquet tête seul → enregistrement direct, pas de fusion
+                    if set(pending.keys()) == {"head"}:
+                        self._record_frame(pending)
                         continue
 
                     if fnum is None:
@@ -364,6 +418,8 @@ class HandReceiver:
                 if buf:
                     self._record_frame(buf)
             sock.close()
+            if raw_f:
+                raw_f.close()
 
     # ── Flush ──────────────────────────────────────────────────────────────────
 
